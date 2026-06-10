@@ -33,16 +33,16 @@ export class ContentPipeline {
     console.log("[Pipeline] Starting full content creation pipeline");
 
     // Step 1: Create project
-    const project = createNewProject({ footage, context, niche });
+    const project = await createNewProject({ footage, context, niche });
 
     try {
       // Step 2: Market Research
       let trendReport: TrendReport | undefined;
       if (!options.skipResearch) {
         console.log("[Pipeline] Running market research...");
-        updateProjectStatus(project.id, "researching");
+        await updateProjectStatus(project.id, "researching");
         trendReport = await this.marketResearch.generateTrendReport(niche);
-        updateProject(project.id, { trendReportId: trendReport.id });
+        await updateProject(project.id, { trendReportId: trendReport.id });
       }
 
       // Step 3: Analyze footage
@@ -66,7 +66,7 @@ export class ContentPipeline {
       const renderResult = await this.videoEditing.processProject(project, storyPlan);
 
       // Step 6: Update project with results
-      updateProject(project.id, {
+      await updateProject(project.id, {
         status: "review",
         editedVideos: renderResult,
       });
@@ -74,24 +74,24 @@ export class ContentPipeline {
       // Step 7: Auto-approve if enabled
       if (options.autoApprove) {
         console.log("[Pipeline] Auto-approving project...");
-        approveProject(project.id);
+        await approveProject(project.id);
 
         // Step 8: Upload to platforms
         console.log("[Pipeline] Uploading to platforms...");
-        const updatedProject = getProjectById(project.id)!;
+        const updatedProject = await getProjectById(project.id);
         await this.socialMedia.uploadVideo(
-          updatedProject,
+          updatedProject!,
           storyPlan,
           renderResult as { youtube?: string; tiktok?: string }
         );
       }
 
       console.log(`[Pipeline] Pipeline complete. Project: ${project.id}`);
-      return getProjectById(project.id)!;
+      return (await getProjectById(project.id))!;
 
     } catch (error) {
       console.error("[Pipeline] Pipeline failed:", error);
-      updateProjectStatus(
+      await updateProjectStatus(
         project.id,
         "failed",
         error instanceof Error ? error.message : "Unknown error"
@@ -116,7 +116,7 @@ export class ContentPipeline {
   async continueFromReview(projectId: string): Promise<Project> {
     console.log(`[Pipeline] Continuing project from review: ${projectId}`);
 
-    const project = getProjectById(projectId);
+    const project = await getProjectById(projectId);
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
     }
@@ -125,7 +125,7 @@ export class ContentPipeline {
       throw new Error(`Project must be approved first. Current status: ${project.status}`);
     }
 
-    const storyPlan = project.storyPlanId ? getStoryPlan(project.storyPlanId) : null;
+    const storyPlan = project.storyPlanId ? await getStoryPlan(project.storyPlanId) : null;
     if (!storyPlan) {
       throw new Error("Story plan not found");
     }
@@ -141,19 +141,19 @@ export class ContentPipeline {
       project.editedVideos as { youtube?: string; tiktok?: string }
     );
 
-    return getProjectById(projectId)!;
+    return (await getProjectById(projectId))!;
   }
 
   async reprocessProject(projectId: string, options: PipelineOptions = {}): Promise<Project> {
     console.log(`[Pipeline] Reprocessing project: ${projectId}`);
 
-    const project = getProjectById(projectId);
+    const project = await getProjectById(projectId);
     if (!project) {
       throw new Error(`Project not found: ${projectId}`);
     }
 
     // Reset status
-    updateProjectStatus(project.id, "created");
+    await updateProjectStatus(project.id, "created");
 
     // Run pipeline again with existing footage
     return this.runFullPipeline(

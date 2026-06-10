@@ -8,7 +8,7 @@ export interface CreateProjectOptions {
   niche?: string[];
 }
 
-export function createNewProject(options: CreateProjectOptions): Project {
+export async function createNewProject(options: CreateProjectOptions): Promise<Project> {
   const project: Project = {
     id: uuid(),
     createdAt: new Date(),
@@ -19,48 +19,49 @@ export function createNewProject(options: CreateProjectOptions): Project {
     niche: options.niche || ["lifestyle"],
   };
 
-  createProject(project);
+  await createProject(project);
   console.log(`[State] Created project: ${project.id}`);
 
   return project;
 }
 
-export function getProjectById(id: string): Project | null {
+export async function getProjectById(id: string): Promise<Project | null> {
   return getProject(id);
 }
 
-export function updateProjectStatus(id: string, status: ProjectStatus, error?: string): void {
-  updateProject(id, { status, error });
+export async function updateProjectStatus(id: string, status: ProjectStatus, error?: string): Promise<void> {
+  await updateProject(id, { status, error });
   console.log(`[State] Project ${id} status: ${status}`);
 }
 
-export function getProjectsByStatus(status: ProjectStatus): Project[] {
+export async function getProjectsByStatus(status: ProjectStatus): Promise<Project[]> {
   return listProjects(status);
 }
 
-export function getAllProjects(): Project[] {
+export async function getAllProjects(): Promise<Project[]> {
   return listProjects();
 }
 
-export function getRecentProjects(limit = 10): Project[] {
-  return listProjects().slice(0, limit);
+export async function getRecentProjects(limit = 10): Promise<Project[]> {
+  const projects = await listProjects();
+  return projects.slice(0, limit);
 }
 
-export function getProjectsReadyForReview(): Project[] {
+export async function getProjectsReadyForReview(): Promise<Project[]> {
   return listProjects("review");
 }
 
-export function getProjectsReadyToPost(): Project[] {
+export async function getProjectsReadyToPost(): Promise<Project[]> {
   return listProjects("ready");
 }
 
-export function approveProject(id: string): void {
-  updateProject(id, { status: "ready" });
+export async function approveProject(id: string): Promise<void> {
+  await updateProject(id, { status: "ready" });
   console.log(`[State] Project ${id} approved for posting`);
 }
 
-export function rejectProject(id: string, reason: string): void {
-  updateProject(id, { status: "failed", error: `Rejected: ${reason}` });
+export async function rejectProject(id: string, reason: string): Promise<void> {
+  await updateProject(id, { status: "failed", error: `Rejected: ${reason}` });
   console.log(`[State] Project ${id} rejected: ${reason}`);
 }
 
@@ -71,8 +72,8 @@ export interface ProjectStats {
   failed: number;
 }
 
-export function getProjectStats(): ProjectStats {
-  const projects = listProjects();
+export async function getProjectStats(): Promise<ProjectStats> {
+  const projects = await listProjects();
 
   const byStatus: Record<ProjectStatus, number> = {
     created: 0,

@@ -32,7 +32,7 @@ export class StoryGenerationAgent {
     console.log(`[StoryGenerationAgent] Generating story for project: ${project.id}`);
 
     // Update project status
-    updateProject(project.id, { status: "story_planning" });
+    await updateProject(project.id, { status: "story_planning" });
 
     // Step 1: Analyze content for story potential
     console.log("[StoryGenerationAgent] Analyzing content insights...");
@@ -62,10 +62,10 @@ export class StoryGenerationAgent {
     });
 
     // Save story plan to database
-    saveStoryPlan(storyPlan);
+    await saveStoryPlan(storyPlan);
 
     // Update project with story plan reference
-    updateProject(project.id, { storyPlanId: storyPlan.id });
+    await updateProject(project.id, { storyPlanId: storyPlan.id });
 
     console.log(`[StoryGenerationAgent] Story plan created: "${storyPlan.title}"`);
     console.log(`[StoryGenerationAgent] Hook: ${storyPlan.hook}`);
@@ -78,7 +78,7 @@ export class StoryGenerationAgent {
   async refineStory(storyPlanId: string, feedback: string): Promise<StoryPlan> {
     console.log(`[StoryGenerationAgent] Refining story plan: ${storyPlanId}`);
 
-    const existingPlan = getStoryPlan(storyPlanId);
+    const existingPlan = await getStoryPlan(storyPlanId);
     if (!existingPlan) {
       throw new Error(`Story plan not found: ${storyPlanId}`);
     }
@@ -90,7 +90,7 @@ export class StoryGenerationAgent {
       ...refinedPlan,
       id: uuid(),
     };
-    saveStoryPlan(newPlan);
+    await saveStoryPlan(newPlan);
 
     console.log(`[StoryGenerationAgent] Story refined: "${newPlan.title}"`);
     return newPlan;

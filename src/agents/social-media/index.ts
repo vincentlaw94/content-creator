@@ -31,7 +31,7 @@ export class SocialMediaAgent {
   ): Promise<PostResult[]> {
     console.log(`[SocialMediaAgent] Uploading videos for project: ${project.id}`);
 
-    updateProject(project.id, { status: "posting" });
+    await updateProject(project.id, { status: "posting" });
 
     const results: PostResult[] = [];
 
@@ -44,7 +44,7 @@ export class SocialMediaAgent {
           editedVideos.tiktok,
           storyPlan
         );
-        savePostResult(tiktokResult);
+        await savePostResult(tiktokResult);
         results.push(tiktokResult);
         console.log(`[SocialMediaAgent] TikTok upload complete: ${tiktokResult.url}`);
       } catch (error) {
@@ -61,7 +61,7 @@ export class SocialMediaAgent {
           editedVideos.youtube,
           storyPlan
         );
-        savePostResult(youtubeResult);
+        await savePostResult(youtubeResult);
         results.push(youtubeResult);
         console.log(`[SocialMediaAgent] YouTube upload complete: ${youtubeResult.url}`);
       } catch (error) {
@@ -71,12 +71,12 @@ export class SocialMediaAgent {
 
     // Update project status
     if (results.length > 0) {
-      updateProject(project.id, {
+      await updateProject(project.id, {
         status: "posted",
         postResults: results.map((r) => r.id),
       });
     } else {
-      updateProject(project.id, {
+      await updateProject(project.id, {
         status: "failed",
         error: "All uploads failed",
       });
@@ -88,7 +88,7 @@ export class SocialMediaAgent {
   async checkAnalytics(projectId: string): Promise<void> {
     console.log(`[SocialMediaAgent] Checking analytics for project: ${projectId}`);
 
-    const posts = getPostResults(projectId);
+    const posts = await getPostResults(projectId);
 
     for (const post of posts) {
       try {
@@ -101,7 +101,7 @@ export class SocialMediaAgent {
         }
 
         if (snapshot) {
-          saveAnalyticsSnapshot(snapshot);
+          await saveAnalyticsSnapshot(snapshot);
           console.log(
             `[SocialMediaAgent] ${post.platform} analytics: ${snapshot.views} views, ${snapshot.likes} likes`
           );
@@ -115,7 +115,7 @@ export class SocialMediaAgent {
   async processComments(projectId: string): Promise<EngagementAction[]> {
     console.log(`[SocialMediaAgent] Processing comments for project: ${projectId}`);
 
-    const posts = getPostResults(projectId);
+    const posts = await getPostResults(projectId);
     const allActions: EngagementAction[] = [];
 
     for (const post of posts) {

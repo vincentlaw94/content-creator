@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+import initSqlJs, { Database as SqlJsDatabase } from "sql.js";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import type {
@@ -14,23 +15,52 @@ import type {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "../../data");
+const DB_PATH = path.join(DATA_DIR, "content-creator.db");
 
-let db: Database.Database;
+let db: SqlJsDatabase | null = null;
+let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 
-export function getDb(): Database.Database {
+async function initSQL(): Promise<typeof SQL> {
+  if (!SQL) {
+    SQL = await initSqlJs();
+  }
+  return SQL;
+}
+
+export async function getDb(): Promise<SqlJsDatabase> {
   if (!db) {
-    db = new Database(path.join(DATA_DIR, "content-creator.db"));
-    db.pragma("journal_mode = WAL");
-    initializeTables();
+    const SqlJs = await initSQL();
+
+    // Ensure data directory exists
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    // Load existing database or create new one
+    if (fs.existsSync(DB_PATH)) {
+      const buffer = fs.readFileSync(DB_PATH);
+      db = new SqlJs.Database(buffer);
+    } else {
+      db = new SqlJs.Database();
+    }
+
+    initializeTables(db);
+    saveDb(); // Save initial structure
   }
   return db;
 }
 
-function initializeTables() {
-  const database = db;
+function saveDb(): void {
+  if (db) {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_PATH, buffer);
+  }
+}
 
+function initializeTables(database: SqlJsDatabase) {
   // Projects table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       created_at TEXT NOT NULL,
@@ -49,7 +79,7 @@ function initializeTables() {
   `);
 
   // Trend reports table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS trend_reports (
       id TEXT PRIMARY KEY,
       generated_at TEXT NOT NULL,
@@ -62,7 +92,7 @@ function initializeTables() {
   `);
 
   // Story plans table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS story_plans (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -80,7 +110,7 @@ function initializeTables() {
   `);
 
   // Footage analysis table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS footage_analyses (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -96,7 +126,7 @@ function initializeTables() {
   `);
 
   // Post results table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS post_results (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -110,7 +140,7 @@ function initializeTables() {
   `);
 
   // Comments table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
       post_id TEXT NOT NULL,
@@ -125,7 +155,7 @@ function initializeTables() {
   `);
 
   // Engagement actions table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS engagement_actions (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -139,7 +169,7 @@ function initializeTables() {
   `);
 
   // Analytics snapshots table
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS analytics_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       post_id TEXT NOT NULL,
@@ -155,83 +185,101 @@ function initializeTables() {
   `);
 
   // Create indexes
-  database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
-    CREATE INDEX IF NOT EXISTS idx_trend_reports_niche ON trend_reports(niche);
-    CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
-    CREATE INDEX IF NOT EXISTS idx_comments_replied ON comments(replied);
-    CREATE INDEX IF NOT EXISTS idx_analytics_post_id ON analytics_snapshots(post_id);
-  `);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_trend_reports_niche ON trend_reports(niche)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_comments_replied ON comments(replied)`);
+  database.run(`CREATE INDEX IF NOT EXISTS idx_analytics_post_id ON analytics_snapshots(post_id)`);
+}
+
+// Helper to run a query and get results as objects
+function queryAll(database: SqlJsDatabase, sql: string, params: unknown[] = []): Record<string, unknown>[] {
+  const stmt = database.prepare(sql);
+  stmt.bind(params);
+
+  const results: Record<string, unknown>[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    results.push(row as Record<string, unknown>);
+  }
+  stmt.free();
+  return results;
+}
+
+function queryOne(database: SqlJsDatabase, sql: string, params: unknown[] = []): Record<string, unknown> | null {
+  const results = queryAll(database, sql, params);
+  return results.length > 0 ? results[0] : null;
 }
 
 // ==================== Project Operations ====================
 
-export function createProject(project: Project): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO projects (id, created_at, updated_at, status, footage, context, niche, trend_report_id, story_plan_id, edited_videos, thumbnails, post_results, error)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    project.id,
-    project.createdAt.toISOString(),
-    project.updatedAt.toISOString(),
-    project.status,
-    JSON.stringify(project.footage),
-    project.context,
-    JSON.stringify(project.niche),
-    project.trendReportId || null,
-    project.storyPlanId || null,
-    project.editedVideos ? JSON.stringify(project.editedVideos) : null,
-    project.thumbnails ? JSON.stringify(project.thumbnails) : null,
-    project.postResults ? JSON.stringify(project.postResults) : null,
-    project.error || null
+export async function createProject(project: Project): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT INTO projects (id, created_at, updated_at, status, footage, context, niche, trend_report_id, story_plan_id, edited_videos, thumbnails, post_results, error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      project.id,
+      project.createdAt.toISOString(),
+      project.updatedAt.toISOString(),
+      project.status,
+      JSON.stringify(project.footage),
+      project.context,
+      JSON.stringify(project.niche),
+      project.trendReportId || null,
+      project.storyPlanId || null,
+      project.editedVideos ? JSON.stringify(project.editedVideos) : null,
+      project.thumbnails ? JSON.stringify(project.thumbnails) : null,
+      project.postResults ? JSON.stringify(project.postResults) : null,
+      project.error || null,
+    ]
   );
+  saveDb();
 }
 
-export function getProject(id: string): Project | null {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM projects WHERE id = ?");
-  const row = stmt.get(id) as Record<string, unknown> | undefined;
+export async function getProject(id: string): Promise<Project | null> {
+  const database = await getDb();
+  const row = queryOne(database, "SELECT * FROM projects WHERE id = ?", [id]);
   if (!row) return null;
   return rowToProject(row);
 }
 
-export function updateProject(id: string, updates: Partial<Project>): void {
-  const db = getDb();
-  const existing = getProject(id);
+export async function updateProject(id: string, updates: Partial<Project>): Promise<void> {
+  const database = await getDb();
+  const existing = await getProject(id);
   if (!existing) throw new Error(`Project ${id} not found`);
 
   const merged = { ...existing, ...updates, updatedAt: new Date() };
-  const stmt = db.prepare(`
-    UPDATE projects SET
+  database.run(
+    `UPDATE projects SET
       updated_at = ?, status = ?, footage = ?, context = ?, niche = ?,
       trend_report_id = ?, story_plan_id = ?, edited_videos = ?,
       thumbnails = ?, post_results = ?, error = ?
-    WHERE id = ?
-  `);
-  stmt.run(
-    merged.updatedAt.toISOString(),
-    merged.status,
-    JSON.stringify(merged.footage),
-    merged.context,
-    JSON.stringify(merged.niche),
-    merged.trendReportId || null,
-    merged.storyPlanId || null,
-    merged.editedVideos ? JSON.stringify(merged.editedVideos) : null,
-    merged.thumbnails ? JSON.stringify(merged.thumbnails) : null,
-    merged.postResults ? JSON.stringify(merged.postResults) : null,
-    merged.error || null,
-    id
+    WHERE id = ?`,
+    [
+      merged.updatedAt.toISOString(),
+      merged.status,
+      JSON.stringify(merged.footage),
+      merged.context,
+      JSON.stringify(merged.niche),
+      merged.trendReportId || null,
+      merged.storyPlanId || null,
+      merged.editedVideos ? JSON.stringify(merged.editedVideos) : null,
+      merged.thumbnails ? JSON.stringify(merged.thumbnails) : null,
+      merged.postResults ? JSON.stringify(merged.postResults) : null,
+      merged.error || null,
+      id,
+    ]
   );
+  saveDb();
 }
 
-export function listProjects(status?: string): Project[] {
-  const db = getDb();
-  const stmt = status
-    ? db.prepare("SELECT * FROM projects WHERE status = ? ORDER BY created_at DESC")
-    : db.prepare("SELECT * FROM projects ORDER BY created_at DESC");
-  const rows = (status ? stmt.all(status) : stmt.all()) as Record<string, unknown>[];
+export async function listProjects(status?: string): Promise<Project[]> {
+  const database = await getDb();
+  const sql = status
+    ? "SELECT * FROM projects WHERE status = ? ORDER BY created_at DESC"
+    : "SELECT * FROM projects ORDER BY created_at DESC";
+  const rows = status ? queryAll(database, sql, [status]) : queryAll(database, sql);
   return rows.map(rowToProject);
 }
 
@@ -255,41 +303,39 @@ function rowToProject(row: Record<string, unknown>): Project {
 
 // ==================== Trend Report Operations ====================
 
-export function saveTrendReport(report: TrendReport): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO trend_reports (id, generated_at, niche, topics, formats, sounds, competitors)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    report.id,
-    report.generatedAt.toISOString(),
-    JSON.stringify(report.niche),
-    JSON.stringify(report.topics),
-    JSON.stringify(report.formats),
-    JSON.stringify(report.sounds),
-    JSON.stringify(report.competitors)
+export async function saveTrendReport(report: TrendReport): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO trend_reports (id, generated_at, niche, topics, formats, sounds, competitors)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      report.id,
+      report.generatedAt.toISOString(),
+      JSON.stringify(report.niche),
+      JSON.stringify(report.topics),
+      JSON.stringify(report.formats),
+      JSON.stringify(report.sounds),
+      JSON.stringify(report.competitors),
+    ]
   );
+  saveDb();
 }
 
-export function getTrendReport(id: string): TrendReport | null {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM trend_reports WHERE id = ?");
-  const row = stmt.get(id) as Record<string, unknown> | undefined;
+export async function getTrendReport(id: string): Promise<TrendReport | null> {
+  const database = await getDb();
+  const row = queryOne(database, "SELECT * FROM trend_reports WHERE id = ?", [id]);
   if (!row) return null;
   return rowToTrendReport(row);
 }
 
-export function getLatestTrendReport(niche: string[]): TrendReport | null {
-  const db = getDb();
+export async function getLatestTrendReport(niche: string[]): Promise<TrendReport | null> {
+  const database = await getDb();
   const nicheJson = JSON.stringify(niche.sort());
-  const stmt = db.prepare(`
-    SELECT * FROM trend_reports
-    WHERE niche = ?
-    ORDER BY generated_at DESC
-    LIMIT 1
-  `);
-  const row = stmt.get(nicheJson) as Record<string, unknown> | undefined;
+  const row = queryOne(
+    database,
+    `SELECT * FROM trend_reports WHERE niche = ? ORDER BY generated_at DESC LIMIT 1`,
+    [nicheJson]
+  );
   if (!row) return null;
   return rowToTrendReport(row);
 }
@@ -308,31 +354,31 @@ function rowToTrendReport(row: Record<string, unknown>): TrendReport {
 
 // ==================== Story Plan Operations ====================
 
-export function saveStoryPlan(plan: StoryPlan): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO story_plans (id, project_id, title, hook, narrative, format, suggested_sound, captions, hashtags, estimated_duration, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    plan.id,
-    plan.projectId,
-    plan.title,
-    plan.hook,
-    JSON.stringify(plan.narrative),
-    JSON.stringify(plan.format),
-    plan.suggestedSound ? JSON.stringify(plan.suggestedSound) : null,
-    JSON.stringify(plan.captions),
-    JSON.stringify(plan.hashtags),
-    plan.estimatedDuration,
-    plan.createdAt.toISOString()
+export async function saveStoryPlan(plan: StoryPlan): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO story_plans (id, project_id, title, hook, narrative, format, suggested_sound, captions, hashtags, estimated_duration, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      plan.id,
+      plan.projectId,
+      plan.title,
+      plan.hook,
+      JSON.stringify(plan.narrative),
+      JSON.stringify(plan.format),
+      plan.suggestedSound ? JSON.stringify(plan.suggestedSound) : null,
+      JSON.stringify(plan.captions),
+      JSON.stringify(plan.hashtags),
+      plan.estimatedDuration,
+      plan.createdAt.toISOString(),
+    ]
   );
+  saveDb();
 }
 
-export function getStoryPlan(id: string): StoryPlan | null {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM story_plans WHERE id = ?");
-  const row = stmt.get(id) as Record<string, unknown> | undefined;
+export async function getStoryPlan(id: string): Promise<StoryPlan | null> {
+  const database = await getDb();
+  const row = queryOne(database, "SELECT * FROM story_plans WHERE id = ?", [id]);
   if (!row) return null;
   return rowToStoryPlan(row);
 }
@@ -355,29 +401,29 @@ function rowToStoryPlan(row: Record<string, unknown>): StoryPlan {
 
 // ==================== Footage Analysis Operations ====================
 
-export function saveFootageAnalysis(analysis: FootageAnalysis): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO footage_analyses (id, project_id, metadata, scenes, keyframes, transcript, summary, suggested_topics, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    analysis.id,
-    analysis.projectId,
-    JSON.stringify(analysis.metadata),
-    JSON.stringify(analysis.scenes),
-    JSON.stringify(analysis.keyframes),
-    JSON.stringify(analysis.transcript),
-    analysis.summary,
-    JSON.stringify(analysis.suggestedTopics),
-    analysis.createdAt.toISOString()
+export async function saveFootageAnalysis(analysis: FootageAnalysis): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO footage_analyses (id, project_id, metadata, scenes, keyframes, transcript, summary, suggested_topics, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      analysis.id,
+      analysis.projectId,
+      JSON.stringify(analysis.metadata),
+      JSON.stringify(analysis.scenes),
+      JSON.stringify(analysis.keyframes),
+      JSON.stringify(analysis.transcript),
+      analysis.summary,
+      JSON.stringify(analysis.suggestedTopics),
+      analysis.createdAt.toISOString(),
+    ]
   );
+  saveDb();
 }
 
-export function getFootageAnalysis(projectId: string): FootageAnalysis | null {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM footage_analyses WHERE project_id = ?");
-  const row = stmt.get(projectId) as Record<string, unknown> | undefined;
+export async function getFootageAnalysis(projectId: string): Promise<FootageAnalysis | null> {
+  const database = await getDb();
+  const row = queryOne(database, "SELECT * FROM footage_analyses WHERE project_id = ?", [projectId]);
   if (!row) return null;
   return {
     id: row.id as string,
@@ -394,27 +440,27 @@ export function getFootageAnalysis(projectId: string): FootageAnalysis | null {
 
 // ==================== Post Result Operations ====================
 
-export function savePostResult(result: PostResult): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO post_results (id, project_id, platform, video_id, url, posted_at, initial_metrics)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    result.id,
-    result.projectId,
-    result.platform,
-    result.videoId,
-    result.url,
-    result.postedAt.toISOString(),
-    result.initialMetrics ? JSON.stringify(result.initialMetrics) : null
+export async function savePostResult(result: PostResult): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO post_results (id, project_id, platform, video_id, url, posted_at, initial_metrics)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      result.id,
+      result.projectId,
+      result.platform,
+      result.videoId,
+      result.url,
+      result.postedAt.toISOString(),
+      result.initialMetrics ? JSON.stringify(result.initialMetrics) : null,
+    ]
   );
+  saveDb();
 }
 
-export function getPostResults(projectId: string): PostResult[] {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM post_results WHERE project_id = ?");
-  const rows = stmt.all(projectId) as Record<string, unknown>[];
+export async function getPostResults(projectId: string): Promise<PostResult[]> {
+  const database = await getDb();
+  const rows = queryAll(database, "SELECT * FROM post_results WHERE project_id = ?", [projectId]);
   return rows.map((row) => ({
     id: row.id as string,
     projectId: row.project_id as string,
@@ -428,37 +474,38 @@ export function getPostResults(projectId: string): PostResult[] {
 
 // ==================== Comment Operations ====================
 
-export function saveComment(comment: Comment): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO comments (id, post_id, platform, author, content, timestamp, sentiment, replied)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    comment.id,
-    comment.postId,
-    comment.platform,
-    comment.author,
-    comment.content,
-    comment.timestamp.toISOString(),
-    comment.sentiment || null,
-    comment.replied ? 1 : 0
+export async function saveComment(comment: Comment): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO comments (id, post_id, platform, author, content, timestamp, sentiment, replied)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      comment.id,
+      comment.postId,
+      comment.platform,
+      comment.author,
+      comment.content,
+      comment.timestamp.toISOString(),
+      comment.sentiment || null,
+      comment.replied ? 1 : 0,
+    ]
   );
+  saveDb();
 }
 
-export function getUnrepliedComments(platform?: string): Comment[] {
-  const db = getDb();
-  const stmt = platform
-    ? db.prepare("SELECT * FROM comments WHERE replied = 0 AND platform = ? ORDER BY timestamp DESC")
-    : db.prepare("SELECT * FROM comments WHERE replied = 0 ORDER BY timestamp DESC");
-  const rows = (platform ? stmt.all(platform) : stmt.all()) as Record<string, unknown>[];
+export async function getUnrepliedComments(platform?: string): Promise<Comment[]> {
+  const database = await getDb();
+  const sql = platform
+    ? "SELECT * FROM comments WHERE replied = 0 AND platform = ? ORDER BY timestamp DESC"
+    : "SELECT * FROM comments WHERE replied = 0 ORDER BY timestamp DESC";
+  const rows = platform ? queryAll(database, sql, [platform]) : queryAll(database, sql);
   return rows.map(rowToComment);
 }
 
-export function markCommentReplied(commentId: string): void {
-  const db = getDb();
-  const stmt = db.prepare("UPDATE comments SET replied = 1 WHERE id = ?");
-  stmt.run(commentId);
+export async function markCommentReplied(commentId: string): Promise<void> {
+  const database = await getDb();
+  database.run("UPDATE comments SET replied = 1 WHERE id = ?", [commentId]);
+  saveDb();
 }
 
 function rowToComment(row: Record<string, unknown>): Comment {
@@ -476,36 +523,40 @@ function rowToComment(row: Record<string, unknown>): Comment {
 
 // ==================== Engagement Action Operations ====================
 
-export function saveEngagementAction(action: EngagementAction): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO engagement_actions (id, type, comment_id, content, status, created_at, executed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    action.id,
-    action.type,
-    action.commentId,
-    action.content || null,
-    action.status,
-    action.createdAt.toISOString(),
-    action.executedAt?.toISOString() || null
+export async function saveEngagementAction(action: EngagementAction): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT OR REPLACE INTO engagement_actions (id, type, comment_id, content, status, created_at, executed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      action.id,
+      action.type,
+      action.commentId,
+      action.content || null,
+      action.status,
+      action.createdAt.toISOString(),
+      action.executedAt?.toISOString() || null,
+    ]
   );
+  saveDb();
 }
 
-export function getPendingActions(): EngagementAction[] {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM engagement_actions WHERE status = 'pending' ORDER BY created_at ASC");
-  const rows = stmt.all() as Record<string, unknown>[];
+export async function getPendingActions(): Promise<EngagementAction[]> {
+  const database = await getDb();
+  const rows = queryAll(
+    database,
+    "SELECT * FROM engagement_actions WHERE status = 'pending' ORDER BY created_at ASC"
+  );
   return rows.map(rowToEngagementAction);
 }
 
-export function updateActionStatus(id: string, status: EngagementAction["status"]): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    UPDATE engagement_actions SET status = ?, executed_at = ? WHERE id = ?
-  `);
-  stmt.run(status, status === "executed" ? new Date().toISOString() : null, id);
+export async function updateActionStatus(id: string, status: EngagementAction["status"]): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `UPDATE engagement_actions SET status = ?, executed_at = ? WHERE id = ?`,
+    [status, status === "executed" ? new Date().toISOString() : null, id]
+  );
+  saveDb();
 }
 
 function rowToEngagementAction(row: Record<string, unknown>): EngagementAction {
@@ -522,33 +573,33 @@ function rowToEngagementAction(row: Record<string, unknown>): EngagementAction {
 
 // ==================== Analytics Operations ====================
 
-export function saveAnalyticsSnapshot(snapshot: AnalyticsSnapshot): void {
-  const db = getDb();
-  const stmt = db.prepare(`
-    INSERT INTO analytics_snapshots (post_id, timestamp, views, likes, comments, shares, watch_time, engagement_rate)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(
-    snapshot.postId,
-    snapshot.timestamp.toISOString(),
-    snapshot.views,
-    snapshot.likes,
-    snapshot.comments,
-    snapshot.shares,
-    snapshot.watchTime || null,
-    snapshot.engagementRate || null
+export async function saveAnalyticsSnapshot(snapshot: AnalyticsSnapshot): Promise<void> {
+  const database = await getDb();
+  database.run(
+    `INSERT INTO analytics_snapshots (post_id, timestamp, views, likes, comments, shares, watch_time, engagement_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      snapshot.postId,
+      snapshot.timestamp.toISOString(),
+      snapshot.views,
+      snapshot.likes,
+      snapshot.comments,
+      snapshot.shares,
+      snapshot.watchTime || null,
+      snapshot.engagementRate || null,
+    ]
   );
+  saveDb();
 }
 
-export function getAnalyticsHistory(postId: string, days = 7): AnalyticsSnapshot[] {
-  const db = getDb();
+export async function getAnalyticsHistory(postId: string, days = 7): Promise<AnalyticsSnapshot[]> {
+  const database = await getDb();
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const stmt = db.prepare(`
-    SELECT * FROM analytics_snapshots
-    WHERE post_id = ? AND timestamp >= ?
-    ORDER BY timestamp ASC
-  `);
-  const rows = stmt.all(postId, since) as Record<string, unknown>[];
+  const rows = queryAll(
+    database,
+    `SELECT * FROM analytics_snapshots WHERE post_id = ? AND timestamp >= ? ORDER BY timestamp ASC`,
+    [postId, since]
+  );
   return rows.map((row) => ({
     postId: row.post_id as string,
     timestamp: new Date(row.timestamp as string),
@@ -561,8 +612,10 @@ export function getAnalyticsHistory(postId: string, days = 7): AnalyticsSnapshot
   }));
 }
 
-export function closeDb(): void {
+export async function closeDb(): Promise<void> {
   if (db) {
+    saveDb();
     db.close();
+    db = null;
   }
 }

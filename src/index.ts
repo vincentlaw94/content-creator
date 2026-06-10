@@ -107,20 +107,20 @@ program
   .action(async (options) => {
     try {
       if (options.approve) {
-        approveProject(options.approve);
+        await approveProject(options.approve);
         console.log(`Project ${options.approve} approved for posting.`);
         return;
       }
 
       if (options.reject) {
         const reason = options.reason || "No reason provided";
-        rejectProject(options.reject, reason);
+        await rejectProject(options.reject, reason);
         console.log(`Project ${options.reject} rejected: ${reason}`);
         return;
       }
 
       // List projects pending review
-      const projects = getProjectsReadyForReview();
+      const projects = await getProjectsReadyForReview();
 
       if (projects.length === 0) {
         console.log("No projects pending review.");
@@ -163,7 +163,7 @@ program
 
       if (project.postResults && project.postResults.length > 0) {
         console.log("\nPost results:");
-        const results = getPostResults(project.id);
+        const results = await getPostResults(project.id);
         for (const result of results) {
           console.log(`  ${result.platform}: ${result.url}`);
         }
@@ -223,9 +223,9 @@ program
         const pipeline = createPipeline();
         await pipeline.getAnalytics(options.project);
 
-        const posts = getPostResults(options.project);
+        const posts = await getPostResults(options.project);
         for (const post of posts) {
-          const history = getAnalyticsHistory(post.id, parseInt(options.days, 10));
+          const history = await getAnalyticsHistory(post.id, parseInt(options.days, 10));
           if (history.length > 0) {
             const latest = history[history.length - 1];
             console.log(`\n${post.platform.toUpperCase()} - ${post.url}`);
@@ -237,7 +237,7 @@ program
         }
       } else {
         // Show summary for all recent projects
-        const stats = getProjectStats();
+        const stats = await getProjectStats();
         console.log("Content Creator Statistics\n");
         console.log(`Total Projects: ${stats.total}`);
         console.log(`Posted (last 7 days): ${stats.recentlyCompleted}`);
@@ -263,7 +263,7 @@ program
   .option("-l, --limit <number>", "Limit results", "20")
   .action(async (options) => {
     try {
-      let projects = getAllProjects();
+      let projects = await getAllProjects();
 
       if (options.status) {
         projects = projects.filter((p) => p.status === options.status);

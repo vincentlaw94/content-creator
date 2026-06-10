@@ -31,7 +31,7 @@ export class MarketResearchAgent {
 
     // Check cache first
     if (useCache) {
-      const cached = getLatestTrendReport(niche);
+      const cached = await getLatestTrendReport(niche);
       if (cached) {
         const age = (Date.now() - cached.generatedAt.getTime()) / (1000 * 60 * 60);
         if (age < cacheMaxAge) {
@@ -108,7 +108,7 @@ export class MarketResearchAgent {
     };
 
     // Save to database
-    saveTrendReport(report);
+    await saveTrendReport(report);
 
     console.log(`[MarketResearchAgent] Report generated:`);
     console.log(`  - ${report.topics.length} trending topics`);

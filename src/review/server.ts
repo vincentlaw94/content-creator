@@ -35,27 +35,27 @@ export function startDashboard(port = 3000): void {
   // ==================== API Routes ====================
 
   // Projects
-  app.get("/api/projects", (_req: Request, res: Response) => {
-    const projects = getAllProjects();
+  app.get("/api/projects", async (_req: Request, res: Response) => {
+    const projects = await getAllProjects();
     res.json(projects);
   });
 
-  app.get("/api/projects/stats", (_req: Request, res: Response) => {
-    const stats = getProjectStats();
+  app.get("/api/projects/stats", async (_req: Request, res: Response) => {
+    const stats = await getProjectStats();
     res.json(stats);
   });
 
-  app.get("/api/projects/:id", (req: Request, res: Response) => {
-    const project = getProjectById(req.params.id);
+  app.get("/api/projects/:id", async (req: Request, res: Response) => {
+    const project = await getProjectById(req.params.id);
     if (!project) {
       res.status(404).json({ error: "Project not found" });
       return;
     }
 
     // Get related data
-    const posts = getPostResults(project.id);
-    const storyPlan = project.storyPlanId ? getStoryPlan(project.storyPlanId) : null;
-    const trendReport = project.trendReportId ? getTrendReport(project.trendReportId) : null;
+    const posts = await getPostResults(project.id);
+    const storyPlan = project.storyPlanId ? await getStoryPlan(project.storyPlanId) : null;
+    const trendReport = project.trendReportId ? await getTrendReport(project.trendReportId) : null;
 
     res.json({
       ...project,
@@ -65,24 +65,24 @@ export function startDashboard(port = 3000): void {
     });
   });
 
-  app.get("/api/projects/review", (_req: Request, res: Response) => {
-    const projects = getProjectsReadyForReview();
+  app.get("/api/projects/review", async (_req: Request, res: Response) => {
+    const projects = await getProjectsReadyForReview();
     res.json(projects);
   });
 
-  app.post("/api/projects/:id/approve", (req: Request, res: Response) => {
+  app.post("/api/projects/:id/approve", async (req: Request, res: Response) => {
     try {
-      approveProject(req.params.id);
+      await approveProject(req.params.id);
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
     }
   });
 
-  app.post("/api/projects/:id/reject", (req: Request, res: Response) => {
+  app.post("/api/projects/:id/reject", async (req: Request, res: Response) => {
     try {
       const { reason } = req.body;
-      rejectProject(req.params.id, reason || "Rejected via dashboard");
+      await rejectProject(req.params.id, reason || "Rejected via dashboard");
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -102,13 +102,13 @@ export function startDashboard(port = 3000): void {
   // Analytics
   app.get("/api/analytics/:projectId", async (req: Request, res: Response) => {
     try {
-      const posts = getPostResults(req.params.projectId);
+      const posts = await getPostResults(req.params.projectId);
       const analytics: Record<string, unknown> = {};
 
       for (const post of posts) {
         analytics[post.platform] = {
           post,
-          history: getAnalyticsHistory(post.id, 30),
+          history: await getAnalyticsHistory(post.id, 30),
         };
       }
 
@@ -119,20 +119,20 @@ export function startDashboard(port = 3000): void {
   });
 
   // Comments & Engagement
-  app.get("/api/comments", (req: Request, res: Response) => {
+  app.get("/api/comments", async (req: Request, res: Response) => {
     const platform = req.query.platform as string | undefined;
-    const comments = getUnrepliedComments(platform);
+    const comments = await getUnrepliedComments(platform);
     res.json(comments);
   });
 
-  app.get("/api/actions/pending", (_req: Request, res: Response) => {
-    const actions = getPendingActions();
+  app.get("/api/actions/pending", async (_req: Request, res: Response) => {
+    const actions = await getPendingActions();
     res.json(actions);
   });
 
   app.post("/api/actions/:id/approve", async (req: Request, res: Response) => {
     try {
-      updateActionStatus(req.params.id, "approved");
+      await updateActionStatus(req.params.id, "approved");
       // Execute the action
       // This would actually post the reply
       res.json({ success: true });
@@ -141,9 +141,9 @@ export function startDashboard(port = 3000): void {
     }
   });
 
-  app.post("/api/actions/:id/reject", (req: Request, res: Response) => {
+  app.post("/api/actions/:id/reject", async (req: Request, res: Response) => {
     try {
-      updateActionStatus(req.params.id, "rejected");
+      await updateActionStatus(req.params.id, "rejected");
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: (error as Error).message });
@@ -176,8 +176,8 @@ export function startDashboard(port = 3000): void {
   });
 
   // Serve video files
-  app.get("/api/video/:projectId/:type", (req: Request, res: Response) => {
-    const project = getProjectById(req.params.projectId);
+  app.get("/api/video/:projectId/:type", async (req: Request, res: Response) => {
+    const project = await getProjectById(req.params.projectId);
     if (!project || !project.editedVideos) {
       res.status(404).json({ error: "Video not found" });
       return;
@@ -193,8 +193,8 @@ export function startDashboard(port = 3000): void {
   });
 
   // Serve thumbnail files
-  app.get("/api/thumbnail/:projectId/:index", (req: Request, res: Response) => {
-    const project = getProjectById(req.params.projectId);
+  app.get("/api/thumbnail/:projectId/:index", async (req: Request, res: Response) => {
+    const project = await getProjectById(req.params.projectId);
     if (!project || !project.thumbnails) {
       res.status(404).json({ error: "Thumbnail not found" });
       return;

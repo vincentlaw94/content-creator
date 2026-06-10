@@ -63,7 +63,7 @@ export class EngagementManager {
 
     // Save actions to database
     for (const action of actions) {
-      saveEngagementAction(action);
+      await saveEngagementAction(action);
     }
 
     return actions;
@@ -74,7 +74,7 @@ export class EngagementManager {
 
     this.resetHourlyLimitIfNeeded();
 
-    const pendingActions = getPendingActions();
+    const pendingActions = await getPendingActions();
     let executed = 0;
 
     for (const action of pendingActions) {
@@ -86,15 +86,15 @@ export class EngagementManager {
       if (action.type === "reply" && action.content) {
         const success = await this.executeReply(action);
         if (success) {
-          updateActionStatus(action.id, "executed");
-          markCommentReplied(action.commentId);
+          await updateActionStatus(action.id, "executed");
+          await markCommentReplied(action.commentId);
           this.repliesSentThisHour++;
           executed++;
         }
       } else if (action.type === "flag") {
         // Flagged comments need manual review
         console.log(`[EngagementManager] Flagged comment ${action.commentId} for review`);
-        updateActionStatus(action.id, "pending"); // Keep pending for manual review
+        await updateActionStatus(action.id, "pending"); // Keep pending for manual review
       }
     }
 
@@ -142,8 +142,8 @@ export class EngagementManager {
   }
 
   async generateEngagementReport(): Promise<string> {
-    const unreplied = getUnrepliedComments();
-    const pending = getPendingActions();
+    const unreplied = await getUnrepliedComments();
+    const pending = await getPendingActions();
 
     const lines: string[] = [];
 

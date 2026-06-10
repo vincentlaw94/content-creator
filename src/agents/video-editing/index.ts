@@ -39,7 +39,7 @@ export class VideoEditingAgent {
     console.log(`[VideoEditingAgent] Analyzing footage: ${footagePath}`);
 
     // Check for cached analysis
-    const cached = getFootageAnalysis(project.id);
+    const cached = await getFootageAnalysis(project.id);
     if (cached) {
       console.log("[VideoEditingAgent] Using cached footage analysis");
       return cached;
@@ -99,7 +99,7 @@ export class VideoEditingAgent {
     };
 
     // Save analysis to database
-    saveFootageAnalysis(analysis);
+    await saveFootageAnalysis(analysis);
 
     // Cleanup keyframes
     await cleanupKeyframes(keyframeDir);
@@ -182,7 +182,7 @@ export class VideoEditingAgent {
     await fs.promises.mkdir(projectOutputDir, { recursive: true });
 
     // Update project status
-    updateProject(project.id, { status: "editing" });
+    await updateProject(project.id, { status: "editing" });
 
     const result = await renderProject(videoProject, {
       outputDir: projectOutputDir,
@@ -190,7 +190,7 @@ export class VideoEditingAgent {
     });
 
     // Update project with rendered video paths
-    updateProject(project.id, {
+    await updateProject(project.id, {
       status: "review",
       editedVideos: {
         youtube: result.youtube,
