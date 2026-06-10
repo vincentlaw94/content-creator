@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+*.db
+public/footage/*
+public/output/*
+!public/footage/.gitkeep
+!public/output/.gitkeep
+.DS_Store
+*.log

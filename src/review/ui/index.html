@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Content Creator Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: '#6366f1',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .tab-active { border-bottom: 2px solid #6366f1; color: #6366f1; }
+    .card { @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-6; }
+    .btn { @apply px-4 py-2 rounded-md font-medium transition-colors; }
+    .btn-primary { @apply bg-primary text-white hover:bg-indigo-700; }
+    .btn-success { @apply bg-green-600 text-white hover:bg-green-700; }
+    .btn-danger { @apply bg-red-600 text-white hover:bg-red-700; }
+    .btn-secondary { @apply bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300; }
+  </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+  <div id="app">
+    <!-- Header -->
+    <header class="bg-white dark:bg-gray-800 shadow-sm">
+      <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-primary">Content Creator</h1>
+        <div class="flex items-center gap-4">
+          <span id="scheduler-status" class="text-sm px-3 py-1 rounded-full bg-gray-200 dark:bg-gray-700">
+            Scheduler: Loading...
+          </span>
+          <button onclick="toggleDarkMode()" class="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div class="max-w-7xl mx-auto px-4">
+        <div class="flex space-x-8">
+          <button onclick="showTab('overview')" class="tab py-4 px-1 tab-active" data-tab="overview">Overview</button>
+          <button onclick="showTab('projects')" class="tab py-4 px-1" data-tab="projects">Projects</button>
+          <button onclick="showTab('review')" class="tab py-4 px-1" data-tab="review">Review Queue</button>
+          <button onclick="showTab('comments')" class="tab py-4 px-1" data-tab="comments">Comments</button>
+          <button onclick="showTab('trends')" class="tab py-4 px-1" data-tab="trends">Trends</button>
+          <button onclick="showTab('analytics')" class="tab py-4 px-1" data-tab="analytics">Analytics</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+      <!-- Overview Tab -->
+      <div id="tab-overview" class="tab-content">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div class="card">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Total Projects</h3>
+            <p id="stat-total" class="text-3xl font-bold mt-2">-</p>
+          </div>
+          <div class="card">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Pending Review</h3>
+            <p id="stat-review" class="text-3xl font-bold mt-2 text-yellow-600">-</p>
+          </div>
+          <div class="card">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Posted (7 days)</h3>
+            <p id="stat-posted" class="text-3xl font-bold mt-2 text-green-600">-</p>
+          </div>
+          <div class="card">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Failed</h3>
+            <p id="stat-failed" class="text-3xl font-bold mt-2 text-red-600">-</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="card">
+            <h2 class="text-lg font-semibold mb-4">Recent Projects</h2>
+            <div id="recent-projects" class="space-y-4">
+              <p class="text-gray-500">Loading...</p>
+            </div>
+          </div>
+          <div class="card">
+            <h2 class="text-lg font-semibold mb-4">Pending Actions</h2>
+            <div id="pending-actions" class="space-y-4">
+              <p class="text-gray-500">Loading...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Projects Tab -->
+      <div id="tab-projects" class="tab-content hidden">
+        <div class="card">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-lg font-semibold">All Projects</h2>
+            <select id="project-filter" onchange="filterProjects()" class="px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700">
+              <option value="">All Status</option>
+              <option value="created">Created</option>
+              <option value="researching">Researching</option>
+              <option value="story_planning">Story Planning</option>
+              <option value="editing">Editing</option>
+              <option value="review">Review</option>
+              <option value="ready">Ready</option>
+              <option value="posted">Posted</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+          <div id="projects-list" class="space-y-4">
+            <p class="text-gray-500">Loading...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Review Tab -->
+      <div id="tab-review" class="tab-content hidden">
+        <div id="review-queue" class="space-y-6">
+          <p class="text-gray-500">Loading...</p>
+        </div>
+      </div>
+
+      <!-- Comments Tab -->
+      <div id="tab-comments" class="tab-content hidden">
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-4">Comment Queue</h2>
+          <div id="comments-list" class="space-y-4">
+            <p class="text-gray-500">Loading...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Trends Tab -->
+      <div id="tab-trends" class="tab-content hidden">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-lg font-semibold">Market Research</h2>
+          <button onclick="refreshTrends()" class="btn btn-primary">Refresh Trends</button>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="card">
+            <h3 class="font-semibold mb-4">Trending Topics</h3>
+            <div id="trending-topics" class="space-y-2">
+              <p class="text-gray-500">Loading...</p>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="font-semibold mb-4">Trending Sounds</h3>
+            <div id="trending-sounds" class="space-y-2">
+              <p class="text-gray-500">Loading...</p>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="font-semibold mb-4">Video Formats</h3>
+            <div id="video-formats" class="space-y-2">
+              <p class="text-gray-500">Loading...</p>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="font-semibold mb-4">Competitors</h3>
+            <div id="competitors" class="space-y-2">
+              <p class="text-gray-500">Loading...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analytics Tab -->
+      <div id="tab-analytics" class="tab-content hidden">
+        <div class="card">
+          <h2 class="text-lg font-semibold mb-4">Performance Analytics</h2>
+          <div id="analytics-content" class="space-y-6">
+            <p class="text-gray-500">Select a project to view analytics.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // State
+    let projects = [];
+    let currentTab = 'overview';
+
+    // Dark mode
+    function toggleDarkMode() {
+      document.documentElement.classList.toggle('dark');
+      localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
+    }
+
+    // Initialize dark mode
+    if (localStorage.getItem('darkMode') === 'true' ||
+        (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    }
+
+    // Tab navigation
+    function showTab(tabName) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('tab-active'));
+
+      document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+      document.querySelector(`[data-tab="${tabName}"]`).classList.add('tab-active');
+
+      currentTab = tabName;
+      loadTabData(tabName);
+    }
+
+    // Load tab data
+    function loadTabData(tab) {
+      switch(tab) {
+        case 'overview':
+          loadStats();
+          loadRecentProjects();
+          loadPendingActions();
+          break;
+        case 'projects':
+          loadProjects();
+          break;
+        case 'review':
+          loadReviewQueue();
+          break;
+        case 'comments':
+          loadComments();
+          break;
+        case 'trends':
+          loadTrends();
+          break;
+      }
+    }
+
+    // API calls
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/projects/stats');
+        const stats = await res.json();
+        document.getElementById('stat-total').textContent = stats.total;
+        document.getElementById('stat-review').textContent = stats.byStatus.review || 0;
+        document.getElementById('stat-posted').textContent = stats.recentlyCompleted;
+        document.getElementById('stat-failed').textContent = stats.failed;
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    }
+
+    async function loadRecentProjects() {
+      try {
+        const res = await fetch('/api/projects');
+        projects = await res.json();
+        const recent = projects.slice(0, 5);
+
+        const html = recent.length ? recent.map(p => `
+          <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <div>
+              <p class="font-medium">${p.context.slice(0, 40)}...</p>
+              <p class="text-sm text-gray-500">${new Date(p.createdAt).toLocaleDateString()}</p>
+            </div>
+            <span class="px-2 py-1 text-xs rounded-full ${getStatusColor(p.status)}">${p.status}</span>
+          </div>
+        `).join('') : '<p class="text-gray-500">No projects yet.</p>';
+
+        document.getElementById('recent-projects').innerHTML = html;
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      }
+    }
+
+    async function loadProjects() {
+      try {
+        const res = await fetch('/api/projects');
+        projects = await res.json();
+        renderProjects(projects);
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      }
+    }
+
+    function renderProjects(projectList) {
+      const html = projectList.length ? projectList.map(p => `
+        <div class="flex justify-between items-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div>
+            <p class="font-medium">${p.context}</p>
+            <p class="text-sm text-gray-500">
+              ${p.niche.join(', ')} | ${new Date(p.createdAt).toLocaleDateString()}
+            </p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="px-2 py-1 text-xs rounded-full ${getStatusColor(p.status)}">${p.status}</span>
+            <button onclick="viewProject('${p.id}')" class="btn btn-secondary text-sm">View</button>
+          </div>
+        </div>
+      `).join('') : '<p class="text-gray-500">No projects found.</p>';
+
+      document.getElementById('projects-list').innerHTML = html;
+    }
+
+    function filterProjects() {
+      const status = document.getElementById('project-filter').value;
+      const filtered = status ? projects.filter(p => p.status === status) : projects;
+      renderProjects(filtered);
+    }
+
+    async function loadReviewQueue() {
+      try {
+        const res = await fetch('/api/projects/review');
+        const reviewProjects = await res.json();
+
+        const html = reviewProjects.length ? reviewProjects.map(p => `
+          <div class="card">
+            <div class="flex justify-between items-start mb-4">
+              <div>
+                <h3 class="font-semibold">${p.context}</h3>
+                <p class="text-sm text-gray-500">${p.niche.join(', ')} | ${new Date(p.createdAt).toLocaleDateString()}</p>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="approveProject('${p.id}')" class="btn btn-success text-sm">Approve</button>
+                <button onclick="rejectProject('${p.id}')" class="btn btn-danger text-sm">Reject</button>
+              </div>
+            </div>
+            ${p.editedVideos ? `
+              <div class="grid grid-cols-2 gap-4">
+                ${p.editedVideos.tiktok ? `
+                  <div>
+                    <p class="text-sm font-medium mb-2">TikTok Version</p>
+                    <video src="/api/video/${p.id}/tiktok" controls class="w-full rounded-lg"></video>
+                  </div>
+                ` : ''}
+                ${p.editedVideos.youtube ? `
+                  <div>
+                    <p class="text-sm font-medium mb-2">YouTube Version</p>
+                    <video src="/api/video/${p.id}/youtube" controls class="w-full rounded-lg"></video>
+                  </div>
+                ` : ''}
+              </div>
+            ` : ''}
+          </div>
+        `).join('') : '<p class="text-gray-500">No projects pending review.</p>';
+
+        document.getElementById('review-queue').innerHTML = html;
+      } catch (e) {
+        console.error('Failed to load review queue:', e);
+      }
+    }
+
+    async function loadPendingActions() {
+      try {
+        const res = await fetch('/api/actions/pending');
+        const actions = await res.json();
+
+        const html = actions.length ? actions.slice(0, 5).map(a => `
+          <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <div>
+              <p class="font-medium capitalize">${a.type}</p>
+              <p class="text-sm text-gray-500">${a.content?.slice(0, 50) || 'No content'}...</p>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="approveAction('${a.id}')" class="text-green-600 hover:text-green-800">✓</button>
+              <button onclick="rejectAction('${a.id}')" class="text-red-600 hover:text-red-800">✕</button>
+            </div>
+          </div>
+        `).join('') : '<p class="text-gray-500">No pending actions.</p>';
+
+        document.getElementById('pending-actions').innerHTML = html;
+      } catch (e) {
+        console.error('Failed to load actions:', e);
+      }
+    }
+
+    async function loadComments() {
+      try {
+        const res = await fetch('/api/comments');
+        const comments = await res.json();
+
+        const html = comments.length ? comments.map(c => `
+          <div class="flex justify-between items-start p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <div>
+              <p class="font-medium">@${c.author}</p>
+              <p class="mt-1">${c.content}</p>
+              <p class="text-sm text-gray-500 mt-2">
+                ${c.platform} | ${new Date(c.timestamp).toLocaleString()} |
+                <span class="${getSentimentColor(c.sentiment)}">${c.sentiment}</span>
+              </p>
+            </div>
+          </div>
+        `).join('') : '<p class="text-gray-500">No unreplied comments.</p>';
+
+        document.getElementById('comments-list').innerHTML = html;
+      } catch (e) {
+        console.error('Failed to load comments:', e);
+      }
+    }
+
+    async function loadTrends() {
+      try {
+        const res = await fetch('/api/research/latest');
+        const report = await res.json();
+
+        // Topics
+        document.getElementById('trending-topics').innerHTML = report.topics?.slice(0, 10).map(t => `
+          <div class="flex justify-between items-center">
+            <span>${t.topic}</span>
+            <span class="text-sm text-gray-500">Score: ${t.score}</span>
+          </div>
+        `).join('') || '<p class="text-gray-500">No topics found.</p>';
+
+        // Sounds
+        document.getElementById('trending-sounds').innerHTML = report.sounds?.slice(0, 10).map(s => `
+          <div class="flex justify-between items-center">
+            <span>${s.name}</span>
+            <span class="text-sm text-gray-500">${s.mood}</span>
+          </div>
+        `).join('') || '<p class="text-gray-500">No sounds found.</p>';
+
+        // Formats
+        document.getElementById('video-formats').innerHTML = report.formats?.map(f => `
+          <div>
+            <p class="font-medium">${f.name}</p>
+            <p class="text-sm text-gray-500">${f.description}</p>
+          </div>
+        `).join('') || '<p class="text-gray-500">No formats found.</p>';
+
+        // Competitors
+        document.getElementById('competitors').innerHTML = report.competitors?.map(c => `
+          <div class="flex justify-between items-center">
+            <span>${c.handle}</span>
+            <span class="text-sm text-gray-500">${formatNumber(c.followers)} followers</span>
+          </div>
+        `).join('') || '<p class="text-gray-500">No competitors found.</p>';
+      } catch (e) {
+        console.error('Failed to load trends:', e);
+      }
+    }
+
+    async function loadSchedulerStatus() {
+      try {
+        const res = await fetch('/api/scheduler/status');
+        const status = await res.json();
+        const el = document.getElementById('scheduler-status');
+        el.textContent = `Scheduler: ${status.isRunning ? 'Running' : 'Stopped'}`;
+        el.className = `text-sm px-3 py-1 rounded-full ${status.isRunning ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-600'}`;
+      } catch (e) {
+        console.error('Failed to load scheduler status:', e);
+      }
+    }
+
+    // Actions
+    async function approveProject(id) {
+      try {
+        await fetch(`/api/projects/${id}/approve`, { method: 'POST' });
+        loadReviewQueue();
+        loadStats();
+      } catch (e) {
+        alert('Failed to approve project');
+      }
+    }
+
+    async function rejectProject(id) {
+      const reason = prompt('Rejection reason:');
+      if (reason === null) return;
+
+      try {
+        await fetch(`/api/projects/${id}/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason })
+        });
+        loadReviewQueue();
+        loadStats();
+      } catch (e) {
+        alert('Failed to reject project');
+      }
+    }
+
+    async function approveAction(id) {
+      try {
+        await fetch(`/api/actions/${id}/approve`, { method: 'POST' });
+        loadPendingActions();
+      } catch (e) {
+        alert('Failed to approve action');
+      }
+    }
+
+    async function rejectAction(id) {
+      try {
+        await fetch(`/api/actions/${id}/reject`, { method: 'POST' });
+        loadPendingActions();
+      } catch (e) {
+        alert('Failed to reject action');
+      }
+    }
+
+    async function refreshTrends() {
+      try {
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Refreshing...';
+
+        await fetch('/api/research/refresh', { method: 'POST' });
+        await loadTrends();
+
+        btn.disabled = false;
+        btn.textContent = 'Refresh Trends';
+      } catch (e) {
+        alert('Failed to refresh trends');
+      }
+    }
+
+    function viewProject(id) {
+      // Could open a modal or navigate to detail page
+      window.location.href = `/project/${id}`;
+    }
+
+    // Helpers
+    function getStatusColor(status) {
+      const colors = {
+        created: 'bg-gray-200 text-gray-800',
+        researching: 'bg-blue-100 text-blue-800',
+        story_planning: 'bg-purple-100 text-purple-800',
+        editing: 'bg-yellow-100 text-yellow-800',
+        review: 'bg-orange-100 text-orange-800',
+        ready: 'bg-cyan-100 text-cyan-800',
+        posting: 'bg-indigo-100 text-indigo-800',
+        posted: 'bg-green-100 text-green-800',
+        failed: 'bg-red-100 text-red-800'
+      };
+      return colors[status] || 'bg-gray-200 text-gray-800';
+    }
+
+    function getSentimentColor(sentiment) {
+      const colors = {
+        positive: 'text-green-600',
+        neutral: 'text-gray-600',
+        negative: 'text-red-600',
+        spam: 'text-orange-600'
+      };
+      return colors[sentiment] || 'text-gray-600';
+    }
+
+    function formatNumber(num) {
+      if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+      if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+      return num.toString();
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      loadTabData('overview');
+      loadSchedulerStatus();
+
+      // Refresh data periodically
+      setInterval(() => {
+        loadTabData(currentTab);
+        loadSchedulerStatus();
+      }, 60000);
+    });
+  </script>
+</body>
+</html>
