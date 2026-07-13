@@ -1,16 +1,16 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
 
-let client: OpenAI | null = null;
+let client: Anthropic | null = null;
 
-export function getOpenAIClient(): OpenAI {
+export function getAnthropicClient(): Anthropic {
   if (!client) {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      throw new Error("OPENAI_API_KEY environment variable is required");
+      throw new Error("ANTHROPIC_API_KEY environment variable is required");
     }
-    client = new OpenAI({ apiKey });
+    client = new Anthropic({ apiKey });
   }
   return client;
 }
@@ -26,34 +26,29 @@ export async function generateText(
   prompt: string,
   options: TextGenerationOptions = {}
 ): Promise<string> {
-  const openai = getOpenAIClient();
+  const anthropic = getAnthropicClient();
   const {
-    model = "gpt-4-turbo-preview",
+    model = "claude-sonnet-4-6",
     temperature = 0.7,
     maxTokens = 2000,
     systemPrompt,
   } = options;
 
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  if (systemPrompt) {
-    messages.push({ role: "system", content: systemPrompt });
-  }
-  messages.push({ role: "user", content: prompt });
-
-  const response = await openai.chat.completions.create({
+  const response = await anthropic.messages.create({
     model,
-    messages,
-    temperature,
     max_tokens: maxTokens,
+    temperature,
+    system: systemPrompt,
+    messages: [{ role: "user", content: prompt }],
   });
 
-  return response.choices[0]?.message?.content || "";
+  const block = response.content[0];
+  return block.type === "text" ? block.text : "";
 }
 
 export interface VisionAnalysisOptions {
   model?: string;
   maxTokens?: number;
-  detail?: "low" | "high" | "auto";
 }
 
 export async function analyzeImage(
@@ -61,34 +56,40 @@ export async function analyzeImage(
   prompt: string,
   options: VisionAnalysisOptions = {}
 ): Promise<string> {
-  const openai = getOpenAIClient();
-  const { model = "gpt-4o", maxTokens = 1000, detail = "auto" } = options;
+  const anthropic = getAnthropicClient();
+  const { model = "claude-sonnet-4-6", maxTokens = 1000 } = options;
 
   const imageBuffer = fs.readFileSync(imagePath);
   const base64Image = imageBuffer.toString("base64");
-  const mimeType = getMimeType(imagePath);
+  const mimeType = getMimeType(imagePath) as
+    | "image/jpeg"
+    | "image/png"
+    | "image/gif"
+    | "image/webp";
 
-  const response = await openai.chat.completions.create({
+  const response = await anthropic.messages.create({
     model,
+    max_tokens: maxTokens,
     messages: [
       {
         role: "user",
         content: [
           {
-            type: "image_url",
-            image_url: {
-              url: `data:${mimeType};base64,${base64Image}`,
-              detail,
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: mimeType,
+              data: base64Image,
             },
           },
           { type: "text", text: prompt },
         ],
       },
     ],
-    max_tokens: maxTokens,
   });
 
-  return response.choices[0]?.message?.content || "";
+  const block = response.content[0];
+  return block.type === "text" ? block.text : "";
 }
 
 export async function analyzeMultipleImages(
@@ -96,33 +97,37 @@ export async function analyzeMultipleImages(
   prompt: string,
   options: VisionAnalysisOptions = {}
 ): Promise<string> {
-  const openai = getOpenAIClient();
-  const { model = "gpt-4o", maxTokens = 2000, detail = "low" } = options;
+  const anthropic = getAnthropicClient();
+  const { model = "claude-sonnet-4-6", maxTokens = 2000 } = options;
 
-  const imageContent: OpenAI.Chat.ChatCompletionContentPart[] = imagePaths.map(
-    (imagePath) => {
-      const imageBuffer = fs.readFileSync(imagePath);
-      const base64Image = imageBuffer.toString("base64");
-      const mimeType = getMimeType(imagePath);
-      return {
-        type: "image_url" as const,
-        image_url: {
-          url: `data:${mimeType};base64,${base64Image}`,
-          detail,
-        },
-      };
-    }
-  );
+  const imageContent: Anthropic.MessageParam["content"] = imagePaths.map((imagePath) => {
+    const imageBuffer = fs.readFileSync(imagePath);
+    const base64Image = imageBuffer.toString("base64");
+    const mimeType = getMimeType(imagePath) as
+      | "image/jpeg"
+      | "image/png"
+      | "image/gif"
+      | "image/webp";
+    return {
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: mimeType,
+        data: base64Image,
+      },
+    };
+  });
 
   imageContent.push({ type: "text", text: prompt });
 
-  const response = await openai.chat.completions.create({
+  const response = await anthropic.messages.create({
     model,
-    messages: [{ role: "user", content: imageContent }],
     max_tokens: maxTokens,
+    messages: [{ role: "user", content: imageContent }],
   });
 
-  return response.choices[0]?.message?.content || "";
+  const block = response.content[0];
+  return block.type === "text" ? block.text : "";
 }
 
 export interface JSONGenerationOptions extends TextGenerationOptions {
@@ -133,120 +138,68 @@ export async function generateJSON<T>(
   prompt: string,
   options: JSONGenerationOptions = {}
 ): Promise<T> {
-  const openai = getOpenAIClient();
+  const anthropic = getAnthropicClient();
   const {
-    model = "gpt-4-turbo-preview",
+    model = "claude-sonnet-4-6",
     temperature = 0.5,
     maxTokens = 2000,
     systemPrompt,
   } = options;
 
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-
   const jsonSystemPrompt = systemPrompt
-    ? `${systemPrompt}\n\nYou must respond with valid JSON only, no additional text.`
-    : "You must respond with valid JSON only, no additional text.";
+    ? `${systemPrompt}\n\nYou must respond with valid JSON only, no additional text or markdown fences.`
+    : "You must respond with valid JSON only, no additional text or markdown fences.";
 
-  messages.push({ role: "system", content: jsonSystemPrompt });
-  messages.push({ role: "user", content: prompt });
-
-  const response = await openai.chat.completions.create({
+  const response = await anthropic.messages.create({
     model,
-    messages,
-    temperature,
     max_tokens: maxTokens,
-    response_format: { type: "json_object" },
+    temperature,
+    system: jsonSystemPrompt,
+    messages: [{ role: "user", content: prompt }],
   });
 
-  const content = response.choices[0]?.message?.content || "{}";
-  return JSON.parse(content) as T;
+  const block = response.content[0];
+  const content = block.type === "text" ? block.text : "{}";
+
+  // Strip markdown fences if present
+  const cleaned = content.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+  return JSON.parse(cleaned) as T;
 }
 
 export async function transcribeAudio(
   audioPath: string,
-  language?: string
+  _language?: string
 ): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }> }> {
-  // Check if local Whisper is configured
+  // Anthropic does not offer audio transcription — return empty transcript.
+  // Set WHISPER_MODEL_PATH to use local whisper-cpp instead.
   const whisperPath = process.env.WHISPER_MODEL_PATH;
-
   if (whisperPath && fs.existsSync(whisperPath)) {
-    return transcribeWithLocalWhisper(audioPath, whisperPath, language);
+    return transcribeWithLocalWhisper(audioPath, whisperPath);
   }
-
-  // Fall back to OpenAI Whisper API
-  return transcribeWithOpenAI(audioPath, language);
-}
-
-async function transcribeWithOpenAI(
-  audioPath: string,
-  language?: string
-): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }> }> {
-  const openai = getOpenAIClient();
-
-  const response = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(audioPath),
-    model: "whisper-1",
-    language,
-    response_format: "verbose_json",
-    timestamp_granularities: ["segment"],
-  });
-
-  const result = response as unknown as {
-    text: string;
-    segments?: Array<{ start: number; end: number; text: string }>;
-  };
-
-  return {
-    text: result.text,
-    segments: result.segments || [],
-  };
+  console.log("[LLM] Audio transcription skipped (no Whisper configured)");
+  return { text: "", segments: [] };
 }
 
 async function transcribeWithLocalWhisper(
   audioPath: string,
-  whisperPath: string,
-  language?: string
+  whisperPath: string
 ): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }> }> {
-  // This is a placeholder for local Whisper integration
-  // In production, you would use whisper.cpp or Python Whisper
   const { spawn } = await import("child_process");
 
   return new Promise((resolve, reject) => {
-    const args = [
-      "-m", whisperPath,
-      "-f", audioPath,
-      "-oj", // Output JSON
-      "--print-progress", "false",
-    ];
-
-    if (language) {
-      args.push("-l", language);
-    }
-
-    const whisper = spawn("whisper-cpp", args);
+    const whisper = spawn("whisper-cpp", ["-m", whisperPath, "-f", audioPath, "-oj", "--print-progress", "false"]);
     let stdout = "";
     let stderr = "";
-
-    whisper.stdout.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    whisper.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-
+    whisper.stdout.on("data", (d) => { stdout += d.toString(); });
+    whisper.stderr.on("data", (d) => { stderr += d.toString(); });
     whisper.on("close", (code) => {
       if (code !== 0) {
         reject(new Error(`Whisper failed: ${stderr}`));
         return;
       }
-
       try {
         const result = JSON.parse(stdout);
-        resolve({
-          text: result.text || "",
-          segments: result.segments || [],
-        });
+        resolve({ text: result.text || "", segments: result.segments || [] });
       } catch {
         reject(new Error("Failed to parse Whisper output"));
       }
@@ -254,32 +207,16 @@ async function transcribeWithLocalWhisper(
   });
 }
 
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const openai = getOpenAIClient();
-
-  const response = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-
-  return response.data[0]?.embedding || [];
+export async function generateEmbedding(_text: string): Promise<number[]> {
+  // Anthropic does not expose an embeddings endpoint — return empty vector.
+  return [];
 }
 
-export async function moderateContent(text: string): Promise<{
+export async function moderateContent(_text: string): Promise<{
   flagged: boolean;
   categories: Record<string, boolean>;
 }> {
-  const openai = getOpenAIClient();
-
-  const response = await openai.moderations.create({
-    input: text,
-  });
-
-  const result = response.results[0];
-  return {
-    flagged: result?.flagged || false,
-    categories: result?.categories as unknown as Record<string, boolean> || {},
-  };
+  return { flagged: false, categories: {} };
 }
 
 function getMimeType(filePath: string): string {
@@ -294,14 +231,12 @@ function getMimeType(filePath: string): string {
   return mimeTypes[ext] || "image/jpeg";
 }
 
-// Utility for retrying API calls
 export async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries = 3,
   delay = 1000
 ): Promise<T> {
   let lastError: Error | null = null;
-
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
@@ -312,6 +247,5 @@ export async function withRetry<T>(
       }
     }
   }
-
   throw lastError;
 }

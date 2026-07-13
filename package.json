@@ -17,12 +17,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.109.0",
     "@remotion/bundler": "^4.0.242",
     "@remotion/cli": "^4.0.242",
     "@remotion/media-utils": "^4.0.242",
     "@remotion/player": "^4.0.242",
     "@remotion/renderer": "^4.0.242",
-    "sql.js": "^1.11.0",
     "commander": "^12.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
@@ -35,11 +35,12 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "remotion": "^4.0.242",
+    "sql.js": "^1.11.0",
     "uuid": "^11.0.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-        "@types/cors": "^2.8.17",
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/node": "^22.10.2",
