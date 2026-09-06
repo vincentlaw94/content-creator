@@ -2,6 +2,9 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
+import fs from "fs";
+import { spawn } from "child_process";
+import multer from "multer";
 import {
   getAllProjects,
   getProjectById,
@@ -22,8 +25,58 @@ import {
   getStoryPlan,
 } from "../shared/db.js";
 import { getScheduler } from "../orchestrator/scheduler.js";
+import { quickAnalyzeFootage } from "../agents/video-editing/analysis/quick-analyze.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function scanVideoFiles(dir: string): Array<{ name: string; path: string; size: number }> {
+  const videoExts = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+  const files: Array<{ name: string; path: string; size: number }> = [];
+  if (!fs.existsSync(dir)) return files;
+
+  function scan(currentDir: string, relPath: string) {
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const fullPath = path.join(currentDir, entry.name);
+      const rel = path.join(relPath, entry.name);
+      if (entry.isDirectory()) {
+        scan(fullPath, rel);
+      } else if (videoExts.has(path.extname(entry.name).toLowerCase())) {
+        try {
+          const stat = fs.statSync(fullPath);
+          files.push({ name: rel, path: fullPath, size: stat.size });
+        } catch { /* skip unreadable */ }
+      }
+    }
+  }
+
+  scan(dir, "");
+  return files;
+}
+
+const videoExts = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+
+function makeMulterUpload(footageDir: string) {
+  fs.mkdirSync(footageDir, { recursive: true });
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, footageDir),
+    filename: (_req, file, cb) => {
+      const ext  = path.extname(file.originalname);
+      const base = path.basename(file.originalname, ext);
+      let name   = file.originalname;
+      if (fs.existsSync(path.join(footageDir, name))) {
+        name = `${base}_${Date.now()}${ext}`;
+      }
+      cb(null, name);
+    },
+  });
+  return multer({
+    storage,
+    fileFilter: (_req, file, cb) => cb(null, videoExts.has(path.extname(file.originalname).toLowerCase())),
+  });
+}
 
 export function startDashboard(port = 3000): void {
   const app = express();
@@ -208,6 +261,130 @@ export function startDashboard(port = 3000): void {
     }
 
     res.sendFile(thumbnailPath);
+  });
+
+  // ==================== Footage Editor Routes ====================
+
+  const projectRoot = path.join(__dirname, "../..");
+  const footageDir  = path.join(projectRoot, "public/footage");
+  const upload      = makeMulterUpload(footageDir);
+
+  // Validate a file path (used by paste-path UI)
+  app.get("/api/footage/validate", (req: Request, res: Response) => {
+    const filePath = req.query.path as string;
+    if (!filePath) { res.json({ valid: false, error: "path required" }); return; }
+    const resolved = path.resolve(filePath);
+    if (!videoExts.has(path.extname(resolved).toLowerCase())) {
+      res.json({ valid: false, error: "Not a supported video format" }); return;
+    }
+    if (!fs.existsSync(resolved)) {
+      res.json({ valid: false, error: "File not found" }); return;
+    }
+    const stat = fs.statSync(resolved);
+    res.json({ valid: true, path: resolved, name: path.basename(resolved), size: stat.size });
+  });
+
+  // Upload footage files (drag-and-drop / file picker)
+  app.post("/api/footage/upload", upload.single("file"), (req: Request, res: Response) => {
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) { res.status(400).json({ error: "No file provided" }); return; }
+    res.json({ name: file.originalname, path: file.path, size: file.size });
+  });
+
+  // List all video files in footage/ and output/ directories
+  app.get("/api/footage", (_req: Request, res: Response) => {
+    res.json({
+      footage: scanVideoFiles(footageDir),
+      output: scanVideoFiles(path.join(projectRoot, "public/output")),
+    });
+  });
+
+  // Serve a video file by absolute path.
+  // Allows any local file so footage outside the project directory can be previewed.
+  app.get("/api/footage/serve", (req: Request, res: Response) => {
+    const filePath = req.query.path as string;
+    if (!filePath) {
+      res.status(400).json({ error: "path query param required" });
+      return;
+    }
+    const resolved = path.resolve(filePath);
+    const videoExts = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+    if (!videoExts.has(path.extname(resolved).toLowerCase())) {
+      res.status(400).json({ error: "Not a supported video file" });
+      return;
+    }
+    if (!fs.existsSync(resolved)) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    res.sendFile(resolved);
+  });
+
+  // Analyze selected footage (metadata + scene detection + vision keyframe sampling)
+  app.post("/api/footage/analyze", async (req: Request, res: Response) => {
+    const { paths } = req.body as { paths?: string[] };
+    if (!Array.isArray(paths) || paths.length === 0) {
+      res.status(400).json({ error: "paths array is required" });
+      return;
+    }
+
+    const tempDir = path.join(projectRoot, "public/temp/footage-analyze");
+    await fs.promises.mkdir(tempDir, { recursive: true });
+
+    const results = await Promise.all(
+      paths.map(async (p) => {
+        const resolved = path.resolve(p);
+        if (!fs.existsSync(resolved)) {
+          return { path: p, error: "File not found" };
+        }
+        try {
+          return await quickAnalyzeFootage(resolved, tempDir);
+        } catch (error) {
+          return { path: resolved, error: (error as Error).message };
+        }
+      })
+    );
+
+    res.json({ results });
+  });
+
+  // Execute edit prompt via Claude Code CLI — streams output as SSE
+  app.post("/api/execute-edit", (req: Request, res: Response) => {
+    const { prompt } = req.body as { prompt: string };
+    if (!prompt) {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+    send({ type: "start", message: "Spawning Claude Code...\n" });
+
+    const claude = spawn("claude", ["-p", prompt, "--allowedTools", "Bash"], {
+      cwd: projectRoot,
+      env: { ...process.env },
+    });
+
+    claude.stdout.on("data", (chunk: Buffer) => {
+      send({ type: "output", text: chunk.toString() });
+    });
+    claude.stderr.on("data", (chunk: Buffer) => {
+      send({ type: "output", text: chunk.toString() });
+    });
+    claude.on("close", (code: number | null) => {
+      send({ type: "done", code, message: `\nProcess exited with code ${code}\n` });
+      res.end();
+    });
+    claude.on("error", (err: Error) => {
+      send({ type: "error", message: `Failed to start claude: ${err.message}\n` });
+      res.end();
+    });
+
+    req.on("close", () => claude.kill());
   });
 
   // Serve the dashboard UI

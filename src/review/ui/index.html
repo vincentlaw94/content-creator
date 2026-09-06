@@ -56,6 +56,7 @@
           <button onclick="showTab('comments')" class="tab py-4 px-1" data-tab="comments">Comments</button>
           <button onclick="showTab('trends')" class="tab py-4 px-1" data-tab="trends">Trends</button>
           <button onclick="showTab('analytics')" class="tab py-4 px-1" data-tab="analytics">Analytics</button>
+          <button onclick="showTab('footage')" class="tab py-4 px-1" data-tab="footage">Footage Editor</button>
         </div>
       </div>
     </nav>
@@ -182,6 +183,224 @@
           </div>
         </div>
       </div>
+      <!-- Footage Editor Tab — full-viewport layout, no page scroll -->
+      <div id="tab-footage" class="tab-content hidden overflow-hidden" style="display:none">
+        <div class="flex h-full overflow-hidden">
+
+          <!-- ── LEFT: File Browser ─────────────────────────────────── -->
+          <div class="w-48 shrink-0 flex flex-col overflow-hidden border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+            <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <h2 class="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Video Files</h2>
+            </div>
+            <div class="flex-1 overflow-y-auto flex flex-col">
+
+              <!-- ── Add Footage ─────────────────────── -->
+              <div class="p-2 border-b border-gray-100 dark:border-gray-700 space-y-2">
+
+                <!-- Dropzone -->
+                <div id="footage-dropzone"
+                  class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg py-3 px-2 text-center cursor-pointer transition-colors select-none"
+                  onclick="document.getElementById('footage-file-input').click()"
+                  ondragenter="event.preventDefault(); dropzoneHover(true)"
+                  ondragover="event.preventDefault(); dropzoneHover(true)"
+                  ondragleave="dropzoneHover(false)"
+                  ondrop="handleFileDrop(event)">
+                  <p class="text-lg mb-0.5">📂</p>
+                  <p class="text-xs font-medium text-gray-500 dark:text-gray-400">Drop videos or click to browse</p>
+                  <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">mp4 · mov · avi · mkv · webm</p>
+                </div>
+                <input id="footage-file-input" type="file" class="hidden" multiple
+                  accept="video/*,.mp4,.mov,.avi,.mkv,.webm,.m4v"
+                  onchange="handleFileSelect(event)" />
+
+                <!-- Upload progress (hidden until upload starts) -->
+                <div id="upload-progress" class="hidden space-y-1">
+                  <div class="flex justify-between items-center">
+                    <span id="upload-status" class="text-xs text-gray-500 truncate">Uploading…</span>
+                    <span id="upload-pct" class="text-xs text-gray-400 shrink-0 ml-1">0%</span>
+                  </div>
+                  <div class="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div id="upload-bar" class="h-full bg-indigo-500 rounded-full transition-all duration-150" style="width:0%"></div>
+                  </div>
+                </div>
+
+                <!-- Paste / type file paths -->
+                <div>
+                  <p class="text-xs text-gray-400 mb-1">Or paste file paths:</p>
+                  <textarea id="footage-path-input" rows="2"
+                    placeholder="/path/to/video.mp4&#10;(one per line)"
+                    class="w-full text-xs font-mono p-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 resize-none outline-none focus:border-indigo-400"
+                    onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)) addFilePaths()"></textarea>
+                  <button onclick="addFilePaths()"
+                    class="w-full mt-1 text-xs py-1 btn btn-secondary">Add Paths</button>
+                  <p id="path-feedback" class="text-xs mt-1 hidden"></p>
+                </div>
+              </div>
+
+              <!-- ── File Lists ──────────────────────── -->
+              <div class="flex-1 overflow-y-auto p-2 space-y-3">
+                <div id="session-files-section" class="hidden">
+                  <p class="text-xs font-semibold text-indigo-500 uppercase tracking-wider px-1 mb-1">Session</p>
+                  <div id="session-files" class="space-y-0.5"></div>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-1">Footage</p>
+                  <div id="footage-files" class="space-y-0.5"><p class="text-xs text-gray-400 px-1">Loading…</p></div>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1 mb-1">Output</p>
+                  <div id="output-files" class="space-y-0.5"><p class="text-xs text-gray-400 px-1">Loading…</p></div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ── CENTER: Player + Timeline + Mark Controls ──────────── -->
+          <div class="flex-1 flex flex-col overflow-hidden bg-black min-w-0">
+
+            <!-- Video player fills available height -->
+            <div class="flex-1 flex items-center justify-center overflow-hidden">
+              <div id="no-video-msg" class="text-center text-gray-600 select-none pointer-events-none">
+                <p class="text-5xl mb-3 opacity-30">▶</p>
+                <p class="text-sm opacity-50">Select a file from the browser</p>
+              </div>
+              <video id="footage-player" class="hidden max-w-full max-h-full" controls preload="metadata"></video>
+            </div>
+
+            <!-- Timeline bar -->
+            <div class="flex items-center gap-2 px-3 py-2 bg-gray-900 border-t border-gray-800 select-none shrink-0">
+              <span id="player-time" class="font-mono text-xs text-gray-300 w-16 shrink-0 tabular-nums">00:00:00</span>
+              <div id="timeline-bar" class="flex-1 h-6 bg-gray-700 rounded-sm relative cursor-pointer overflow-visible"
+                onclick="seekToClick(event)"
+                onmousemove="showTimeTooltip(event)"
+                onmouseleave="hideTimeTooltip()">
+                <!-- playback progress -->
+                <div id="timeline-progress" class="absolute inset-y-0 left-0 bg-indigo-600 opacity-30 rounded-sm pointer-events-none" style="width:0%"></div>
+                <!-- in→out selected range -->
+                <div id="timeline-range" class="absolute inset-y-0 bg-green-500 opacity-35 pointer-events-none" style="left:0%;width:0%;display:none"></div>
+                <!-- in-point marker (draggable) -->
+                <div id="timeline-in-marker" class="absolute inset-y-0 w-4 -translate-x-1/2 cursor-ew-resize z-10" style="left:0%;display:none"
+                  onmousedown="startMarkerDrag('in', event)" onclick="event.stopPropagation()">
+                  <div class="absolute inset-y-0 w-0.5 bg-green-400" style="left:calc(50% - 0.5px)"></div>
+                  <div class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-green-400 rounded-full border-2 border-black shadow"></div>
+                </div>
+                <!-- out-point marker (draggable) -->
+                <div id="timeline-out-marker" class="absolute inset-y-0 w-4 -translate-x-1/2 cursor-ew-resize z-10" style="left:100%;display:none"
+                  onmousedown="startMarkerDrag('out', event)" onclick="event.stopPropagation()">
+                  <div class="absolute inset-y-0 w-0.5 bg-red-400" style="left:calc(50% - 0.5px)"></div>
+                  <div class="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-400 rounded-full border-2 border-black shadow"></div>
+                </div>
+                <!-- playhead -->
+                <div id="timeline-playhead" class="absolute inset-y-0 w-px bg-white shadow-md pointer-events-none" style="left:0%"></div>
+                <!-- hover tooltip -->
+                <div id="timeline-tooltip" class="absolute -top-7 bg-gray-800 border border-gray-600 text-white text-xs px-1.5 py-0.5 rounded pointer-events-none whitespace-nowrap" style="left:0%;transform:translateX(-50%);display:none"></div>
+              </div>
+              <span id="player-duration" class="font-mono text-xs text-gray-500 w-16 shrink-0 text-right tabular-nums">00:00:00</span>
+            </div>
+
+            <!-- Mark In / Out controls row -->
+            <div class="flex items-center gap-2 px-3 py-2 bg-gray-900 border-t border-gray-800 shrink-0 flex-wrap">
+              <button onclick="markIn()"
+                class="px-2.5 py-1 text-xs font-semibold rounded bg-green-800 hover:bg-green-700 text-green-100 shrink-0">◀ In</button>
+              <input id="clip-in" type="text" placeholder="00:00:00" oninput="updateTimeline()"
+                class="w-20 font-mono text-xs bg-gray-800 text-green-300 border border-gray-600 focus:border-green-500 rounded px-2 py-1 outline-none" />
+              <span class="text-gray-600 shrink-0 text-sm">→</span>
+              <input id="clip-out" type="text" placeholder="00:00:00" oninput="updateTimeline()"
+                class="w-20 font-mono text-xs bg-gray-800 text-red-300 border border-gray-600 focus:border-red-500 rounded px-2 py-1 outline-none" />
+              <button onclick="markOut()"
+                class="px-2.5 py-1 text-xs font-semibold rounded bg-red-900 hover:bg-red-800 text-red-100 shrink-0">Out ▶</button>
+              <span id="clip-duration-label" class="text-xs text-gray-500 w-10 shrink-0 tabular-nums"></span>
+              <div class="w-px h-4 bg-gray-700 shrink-0 mx-1"></div>
+              <input id="clip-context" type="text" placeholder="Notes about this clip…"
+                class="flex-1 text-xs bg-gray-800 text-gray-200 border border-gray-600 focus:border-indigo-500 rounded px-2 py-1 outline-none min-w-0" />
+              <button onclick="addClip()"
+                class="px-3 py-1 text-xs font-bold rounded bg-indigo-600 hover:bg-indigo-500 text-white shrink-0">+ Add</button>
+            </div>
+          </div>
+
+          <!-- ── RIGHT: Clips + Prompt ───────────────────────────────── -->
+          <div class="w-72 shrink-0 flex flex-col overflow-hidden border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+
+            <!-- Sub-tabs -->
+            <div class="flex border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <button id="rpanel-clips-btn" onclick="showRightTab('clips')"
+                class="flex-1 py-2.5 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 transition-colors">
+                Clips <span id="clip-count" class="text-gray-400 font-normal">(0)</span>
+              </button>
+              <button id="rpanel-prompt-btn" onclick="showRightTab('prompt')"
+                class="flex-1 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+                Prompt &amp; Export
+              </button>
+            </div>
+
+            <!-- Clips panel -->
+            <div id="rpanel-clips" class="flex-1 flex flex-col overflow-hidden">
+              <div class="flex justify-between items-center px-3 py-1.5 border-b border-gray-100 dark:border-gray-700 shrink-0">
+                <span class="text-xs text-gray-400">In order of addition</span>
+                <button onclick="clearClips()" class="text-xs text-red-400 hover:text-red-600">Clear all</button>
+              </div>
+              <div id="clips-list" class="flex-1 overflow-y-auto p-2 space-y-1.5">
+                <p class="text-xs text-gray-400 p-2 text-center">No clips yet.<br>Mark In/Out then click + Add.</p>
+              </div>
+            </div>
+
+            <!-- Prompt panel (hidden by default) -->
+            <div id="rpanel-prompt" class="flex-1 flex-col overflow-y-auto hidden">
+              <div class="p-3 space-y-3">
+                <div>
+                  <label class="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Output Name</label>
+                  <input id="output-name" type="text" placeholder="my-edit-2026-07-12"
+                    class="w-full text-sm px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 outline-none focus:border-indigo-400" />
+                </div>
+                <div>
+                  <label class="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Format</label>
+                  <select id="output-format"
+                    class="w-full text-sm px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 outline-none">
+                    <option value="tiktok">TikTok — 9:16 (1080×1920)</option>
+                    <option value="youtube">YouTube — 16:9 (1920×1080)</option>
+                    <option value="square">Square — 1:1 (1080×1080)</option>
+                    <option value="original">Keep original</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-medium text-gray-500 dark:text-gray-400">Editing Instructions</label>
+                    <span id="footage-analysis-status" class="text-xs text-gray-400 hidden"></span>
+                  </div>
+                  <textarea id="edit-context" rows="5"
+                    placeholder="Mood, pacing, style, colour grade… (auto-filled with footage analysis once clips are added)"
+                    class="w-full text-sm px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 resize-y outline-none focus:border-indigo-400"></textarea>
+                </div>
+                <div class="flex flex-col gap-1.5">
+                  <button onclick="buildPrompt()" class="btn btn-secondary text-sm w-full">Generate Prompt</button>
+                  <button onclick="copyPrompt()" class="btn btn-secondary text-sm w-full">Copy Prompt</button>
+                  <button onclick="sendToClaudeCode()" class="btn btn-primary text-sm w-full">⚡ Send to Claude Code</button>
+                </div>
+                <div>
+                  <label class="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Generated Prompt</label>
+                  <textarea id="generated-prompt" rows="10" readonly
+                    class="w-full text-xs font-mono px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-900 resize-y"
+                    placeholder="Click Generate Prompt…"></textarea>
+                </div>
+                <!-- Execution log -->
+                <div id="execution-log-panel" class="hidden">
+                  <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-xs font-medium text-gray-500">Claude Code Output</span>
+                    <div class="flex gap-2 items-center">
+                      <span id="exec-status" class="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">Running…</span>
+                      <button onclick="clearLog()" class="text-xs text-gray-400 hover:text-gray-600">Clear</button>
+                    </div>
+                  </div>
+                  <pre id="execution-output"
+                    class="bg-gray-900 text-green-400 p-2 rounded text-xs font-mono h-36 overflow-y-auto whitespace-pre-wrap"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div><!-- /tab-footage -->
     </main>
   </div>
 
@@ -189,6 +408,566 @@
     // State
     let projects = [];
     let currentTab = 'overview';
+
+    // ==================== Footage Editor ====================
+    let footageFiles = [];
+    let outputFiles  = [];
+    let currentVideoPath = null;
+    let clips = [];
+    let draggingMarker = null; // 'in' | 'out' | null
+    let analyzedPaths = new Set();   // paths already sent through /api/footage/analyze
+    let pendingAnalysis = new Set(); // paths currently being analyzed
+
+    // ── Auto-analysis of selected footage ──────────────────────────
+    async function analyzeFootage(paths) {
+      const newPaths = [...new Set(paths)].filter(
+        (p) => !analyzedPaths.has(p) && !pendingAnalysis.has(p)
+      );
+      if (!newPaths.length) return;
+      newPaths.forEach((p) => pendingAnalysis.add(p));
+
+      const statusEl = document.getElementById('footage-analysis-status');
+      statusEl.classList.remove('hidden', 'text-red-500');
+      statusEl.classList.add('text-gray-400');
+      statusEl.textContent = `Analyzing ${newPaths.length} clip${newPaths.length > 1 ? 's' : ''}…`;
+
+      try {
+        const res = await fetch('/api/footage/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paths: newPaths }),
+        });
+        const data = await res.json();
+        const results = data.results || [];
+
+        const blocks = results
+          .filter((r) => !r.error)
+          .map((r) => {
+            const flagLines = (r.flags || []).map((f) => `  ⚠ ${f}`).join('\n');
+            return `[Analysis] ${r.name}: ${r.summary}${flagLines ? '\n' + flagLines : ''}`;
+          });
+
+        if (blocks.length) {
+          const ctx = document.getElementById('edit-context');
+          ctx.value = ctx.value ? `${ctx.value}\n\n${blocks.join('\n\n')}` : blocks.join('\n\n');
+        }
+
+        results.forEach((r) => {
+          if (!r.error) analyzedPaths.add(r.path);
+        });
+        const failed = results.filter((r) => r.error);
+        if (failed.length) {
+          statusEl.textContent = `Analysis failed for ${failed.length} clip${failed.length > 1 ? 's' : ''} — click to retry`;
+          statusEl.classList.remove('text-gray-400');
+          statusEl.classList.add('text-red-500', 'cursor-pointer');
+          statusEl.onclick = () => { statusEl.onclick = null; analyzeFootage(failed.map((r) => r.path)); };
+        } else {
+          statusEl.textContent = `Analyzed ${blocks.length} clip${blocks.length > 1 ? 's' : ''}`;
+          setTimeout(() => statusEl.classList.add('hidden'), 3000);
+        }
+      } catch (e) {
+        statusEl.textContent = 'Analysis failed — click to retry';
+        statusEl.classList.remove('text-gray-400');
+        statusEl.classList.add('text-red-500', 'cursor-pointer');
+        statusEl.onclick = () => { statusEl.onclick = null; analyzeFootage(newPaths); };
+      } finally {
+        newPaths.forEach((p) => pendingAnalysis.delete(p));
+      }
+    }
+
+    // ── Dropzone / file input / path paste ───────────────────────
+
+    function dropzoneHover(on) {
+      const dz = document.getElementById('footage-dropzone');
+      if (on) {
+        dz.classList.add('border-indigo-500','bg-indigo-50','dark:bg-indigo-950','dark:border-indigo-500');
+      } else {
+        dz.classList.remove('border-indigo-500','bg-indigo-50','dark:bg-indigo-950','dark:border-indigo-500');
+      }
+    }
+
+    async function handleFileDrop(event) {
+      event.preventDefault();
+      dropzoneHover(false);
+
+      const dt = event.dataTransfer;
+      // Prefer file objects; fall back to dragged text (file paths)
+      if (dt.files && dt.files.length > 0) {
+        await uploadFiles(Array.from(dt.files));
+      } else {
+        const text = dt.getData('text') || dt.getData('text/plain');
+        if (text) {
+          document.getElementById('footage-path-input').value = text;
+          await addFilePaths();
+        }
+      }
+    }
+
+    async function handleFileSelect(event) {
+      const files = Array.from(event.target.files || []);
+      event.target.value = ''; // reset so same file can be re-selected
+      if (files.length) await uploadFiles(files);
+    }
+
+    async function uploadFiles(files) {
+      const progressEl = document.getElementById('upload-progress');
+      const statusEl   = document.getElementById('upload-status');
+      const pctEl      = document.getElementById('upload-pct');
+      const barEl      = document.getElementById('upload-bar');
+      progressEl.classList.remove('hidden');
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        statusEl.textContent = `${file.name} (${i + 1}/${files.length})`;
+        pctEl.textContent = '0%';
+        barEl.style.width = '0%';
+
+        try {
+          const data = await new Promise((resolve, reject) => {
+            const formData = new FormData();
+            formData.append('file', file);
+            const xhr = new XMLHttpRequest();
+            xhr.upload.onprogress = (e) => {
+              if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 100);
+                pctEl.textContent = `${pct}%`;
+                barEl.style.width = `${pct}%`;
+              }
+            };
+            xhr.onload = () => {
+              if (xhr.status === 200) resolve(JSON.parse(xhr.responseText));
+              else reject(new Error(xhr.statusText));
+            };
+            xhr.onerror = () => reject(new Error('Network error'));
+            xhr.open('POST', '/api/footage/upload');
+            xhr.send(formData);
+          });
+          _addToSession(data);
+        } catch (e) {
+          statusEl.textContent = `Error: ${e.message}`;
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+
+      statusEl.textContent = `Done — ${files.length} file${files.length > 1 ? 's' : ''} added`;
+      pctEl.textContent = '✓';
+      barEl.style.width = '100%';
+      barEl.classList.replace('bg-indigo-500', 'bg-green-500');
+      loadFootageFiles(); // refresh the footage section
+      setTimeout(() => {
+        progressEl.classList.add('hidden');
+        barEl.classList.replace('bg-green-500', 'bg-indigo-500');
+      }, 2500);
+    }
+
+    async function addFilePaths() {
+      const textarea  = document.getElementById('footage-path-input');
+      const feedback  = document.getElementById('path-feedback');
+      const raw = textarea.value.trim();
+      if (!raw) return;
+
+      const paths = raw.split('\n').map(p => p.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+      let added = 0, failed = [];
+
+      for (const p of paths) {
+        try {
+          const res  = await fetch('/api/footage/validate?path=' + encodeURIComponent(p));
+          const data = await res.json();
+          if (data.valid) {
+            _addToSession(data);
+            added++;
+          } else {
+            failed.push(`${p.split('/').pop()}: ${data.error}`);
+          }
+        } catch { failed.push(p); }
+      }
+
+      feedback.classList.remove('hidden', 'text-red-500', 'text-green-600');
+      if (added > 0 && !failed.length) {
+        feedback.textContent = `✓ Added ${added} file${added > 1 ? 's' : ''}`;
+        feedback.classList.add('text-green-600');
+        textarea.value = '';
+      } else if (added > 0) {
+        feedback.textContent = `✓ ${added} added, ${failed.length} not found`;
+        feedback.classList.add('text-green-600');
+        textarea.value = failed.join('\n');
+      } else {
+        feedback.textContent = `✗ ${failed[0] || 'File not found'}`;
+        feedback.classList.add('text-red-500');
+      }
+      setTimeout(() => feedback.classList.add('hidden'), 4000);
+    }
+
+    function _addToSession(fileData) {
+      if (!sessionFiles.find(f => f.path === fileData.path)) {
+        sessionFiles.push({ name: fileData.name, path: fileData.path, size: fileData.size || null });
+        renderSessionFiles();
+        if (sessionFiles.length === 1) loadVideo(fileData.path, fileData.name);
+        analyzeFootage([fileData.path]);
+      }
+    }
+
+    // ── File browser ──────────────────────────────────────────────
+    async function loadFootageFiles() {
+      try {
+        const res = await fetch('/api/footage');
+        const data = await res.json();
+        footageFiles = data.footage || [];
+        outputFiles  = data.output  || [];
+        renderFileBrowser();
+      } catch (e) { console.error('Failed to load footage files:', e); }
+    }
+
+    function makeFileItem(f) {
+      const active = f.path === currentVideoPath;
+      const esc = f.path.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      const nm  = (f.name || f.path.split('/').pop()).replace(/'/g,"\\'");
+      return `<button onclick="loadVideo('${esc}','${nm}')"
+        class="w-full text-left px-1.5 py-1 rounded text-xs truncate flex justify-between items-center gap-1
+          ${active ? 'bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold'
+                   : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'}">
+        <span class="truncate">▶ ${f.name || f.path.split('/').pop()}</span>
+        ${f.size ? `<span class="shrink-0 text-gray-400 text-xs">${formatFileSize(f.size)}</span>` : ''}
+      </button>`;
+    }
+
+    function renderFileBrowser() {
+      renderSessionFiles();
+      document.getElementById('footage-files').innerHTML =
+        footageFiles.length ? footageFiles.map(makeFileItem).join('') : '<p class="text-xs text-gray-400 px-1">None found</p>';
+      document.getElementById('output-files').innerHTML =
+        outputFiles.length ? outputFiles.map(makeFileItem).join('') : '<p class="text-xs text-gray-400 px-1">None yet</p>';
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes >= 1e9) return (bytes/1e9).toFixed(1)+' GB';
+      if (bytes >= 1e6) return (bytes/1e6).toFixed(1)+' MB';
+      if (bytes >= 1e3) return (bytes/1e3).toFixed(1)+' KB';
+      return bytes+' B';
+    }
+
+    // ── Video loading ─────────────────────────────────────────────
+    function loadVideo(filePath, displayName) {
+      currentVideoPath = filePath;
+      const video = document.getElementById('footage-player');
+      const noMsg = document.getElementById('no-video-msg');
+      video.src = '/api/footage/serve?path=' + encodeURIComponent(filePath);
+      video.classList.remove('hidden');
+      noMsg.style.display = 'none';
+
+      video.onloadedmetadata = () => {
+        document.getElementById('player-duration').textContent = formatTime(video.duration);
+        resetTimelineMarkers();
+      };
+      video.ontimeupdate = () => {
+        const t = video.currentTime, d = video.duration || 1;
+        document.getElementById('player-time').textContent = formatTime(t);
+        document.getElementById('timeline-playhead').style.left = `${(t/d)*100}%`;
+        document.getElementById('timeline-progress').style.width  = `${(t/d)*100}%`;
+      };
+      renderFileBrowser();
+    }
+
+    // ── Time helpers ──────────────────────────────────────────────
+    function formatTime(s) {
+      if (!isFinite(s) || s < 0) s = 0;
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    }
+    function parseTime(str) {
+      if (!str) return 0;
+      const p = str.trim().split(':').map(Number);
+      if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+      if (p.length === 2) return p[0]*60 + p[1];
+      return parseFloat(str) || 0;
+    }
+
+    // ── Timeline ──────────────────────────────────────────────────
+    function seekToClick(event) {
+      const video = document.getElementById('footage-player');
+      if (!video.duration) return;
+      const bar = document.getElementById('timeline-bar');
+      const r = bar.getBoundingClientRect();
+      video.currentTime = Math.max(0, Math.min(1, (event.clientX - r.left) / r.width)) * video.duration;
+    }
+
+    function showTimeTooltip(event) {
+      const video = document.getElementById('footage-player');
+      if (!video.duration) return;
+      const bar = document.getElementById('timeline-bar');
+      const tip = document.getElementById('timeline-tooltip');
+      const r = bar.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - r.left) / r.width));
+      tip.textContent = formatTime(ratio * video.duration);
+      tip.style.left = `${ratio * 100}%`;
+      tip.style.display = 'block';
+    }
+    function hideTimeTooltip() {
+      document.getElementById('timeline-tooltip').style.display = 'none';
+    }
+
+    // ── Marker drag ───────────────────────────────────────────────
+    function startMarkerDrag(type, event) {
+      event.preventDefault();
+      event.stopPropagation();
+      draggingMarker = type;
+    }
+
+    function onMarkerDragMove(event) {
+      if (!draggingMarker) return;
+      const video = document.getElementById('footage-player');
+      if (!video || !video.duration) return;
+      const bar = document.getElementById('timeline-bar');
+      const r = bar.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - r.left) / r.width));
+      const timeSec = ratio * video.duration;
+      document.getElementById(draggingMarker === 'in' ? 'clip-in' : 'clip-out').value = formatTime(timeSec);
+      video.currentTime = timeSec;
+      updateTimeline();
+    }
+
+    function onMarkerDragEnd() {
+      draggingMarker = null;
+    }
+
+    function updateTimeline() {
+      const video = document.getElementById('footage-player');
+      if (!video || !video.duration) return;
+      const inSec  = parseTime(document.getElementById('clip-in').value);
+      const outSec = parseTime(document.getElementById('clip-out').value);
+      const dur    = video.duration;
+
+      const inM  = document.getElementById('timeline-in-marker');
+      const outM = document.getElementById('timeline-out-marker');
+      const rng  = document.getElementById('timeline-range');
+      const lbl  = document.getElementById('clip-duration-label');
+
+      if (document.getElementById('clip-in').value) {
+        inM.style.left = `${(inSec/dur)*100}%`;
+        inM.style.display = 'block';
+      } else { inM.style.display = 'none'; }
+
+      if (document.getElementById('clip-out').value) {
+        outM.style.left = `${(outSec/dur)*100}%`;
+        outM.style.display = 'block';
+      } else { outM.style.display = 'none'; }
+
+      if (document.getElementById('clip-in').value && document.getElementById('clip-out').value && outSec > inSec) {
+        rng.style.left  = `${(inSec/dur)*100}%`;
+        rng.style.width = `${((outSec-inSec)/dur)*100}%`;
+        rng.style.display = 'block';
+        lbl.textContent = `${(outSec-inSec).toFixed(1)}s`;
+      } else {
+        rng.style.display = 'none';
+        lbl.textContent = '';
+      }
+    }
+
+    function resetTimelineMarkers() {
+      ['timeline-in-marker','timeline-out-marker','timeline-range'].forEach(id => {
+        document.getElementById(id).style.display = 'none';
+      });
+      document.getElementById('timeline-playhead').style.left = '0%';
+      document.getElementById('timeline-progress').style.width = '0%';
+      document.getElementById('clip-duration-label').textContent = '';
+    }
+
+    // ── Mark In / Out ─────────────────────────────────────────────
+    function markIn() {
+      const v = document.getElementById('footage-player');
+      if (v.classList.contains('hidden')) return;
+      document.getElementById('clip-in').value = formatTime(v.currentTime);
+      updateTimeline();
+    }
+    function markOut() {
+      const v = document.getElementById('footage-player');
+      if (v.classList.contains('hidden')) return;
+      document.getElementById('clip-out').value = formatTime(v.currentTime);
+      updateTimeline();
+    }
+
+    // ── Clip management ───────────────────────────────────────────
+    function addClip() {
+      if (!currentVideoPath) { alert('Load a video first'); return; }
+      const inVal  = document.getElementById('clip-in').value.trim();
+      const outVal = document.getElementById('clip-out').value.trim();
+      const ctx    = document.getElementById('clip-context').value.trim();
+      if (!inVal || !outVal) { alert('Set both Mark In and Mark Out'); return; }
+      const inSec = parseTime(inVal), outSec = parseTime(outVal);
+      if (outSec <= inSec) { alert('Mark Out must be after Mark In'); return; }
+      clips.push({ id: Date.now(), file: currentVideoPath,
+        fileName: currentVideoPath.split('/').pop(),
+        inTime: inVal, outTime: outVal, inSec, outSec,
+        duration: outSec - inSec, context: ctx });
+      renderClips();
+      showRightTab('clips');
+      document.getElementById('clip-in').value  = '';
+      document.getElementById('clip-out').value = '';
+      document.getElementById('clip-context').value = '';
+      resetTimelineMarkers();
+    }
+
+    function removeClip(id) { clips = clips.filter(c => c.id !== id); renderClips(); }
+    function clearClips() {
+      if (clips.length && !confirm('Clear all clips?')) return;
+      clips = []; renderClips();
+    }
+
+    function renderClips() {
+      document.getElementById('clip-count').textContent = `(${clips.length})`;
+      const el = document.getElementById('clips-list');
+      if (!clips.length) {
+        el.innerHTML = '<p class="text-xs text-gray-400 p-2 text-center">No clips yet.<br>Mark In/Out then click + Add.</p>';
+        return;
+      }
+      el.innerHTML = clips.map((c, i) => `
+        <div class="group p-2 rounded bg-gray-50 dark:bg-gray-700">
+          <div class="flex items-start gap-1.5">
+            <span class="text-xs font-bold text-indigo-500 shrink-0 mt-px">#${i+1}</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${c.fileName}</p>
+              <p class="text-xs font-mono text-gray-500 mt-0.5">
+                <span class="text-green-600 dark:text-green-400">${c.inTime}</span>
+                <span class="text-gray-400"> → </span>
+                <span class="text-red-500 dark:text-red-400">${c.outTime}</span>
+                <span class="text-gray-400 ml-1">(${c.duration.toFixed(1)}s)</span>
+              </p>
+              ${c.context ? `<p class="text-xs text-indigo-600 dark:text-indigo-400 mt-0.5 truncate italic">"${c.context}"</p>` : ''}
+            </div>
+            <button onclick="removeClip(${c.id})"
+              class="text-red-400 hover:text-red-600 text-xs shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+          </div>
+        </div>`).join('');
+    }
+
+    // ── Right panel sub-tabs ──────────────────────────────────────
+    function showRightTab(tab) {
+      const isClips = tab === 'clips';
+      document.getElementById('rpanel-clips').style.display  = isClips ? 'flex'   : 'none';
+      document.getElementById('rpanel-prompt').style.display = isClips ? 'none'   : 'flex';
+      const cb = document.getElementById('rpanel-clips-btn');
+      const pb = document.getElementById('rpanel-prompt-btn');
+      cb.className = `flex-1 py-2.5 text-xs font-semibold border-b-2 transition-colors ${isClips
+        ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`;
+      pb.className = `flex-1 py-2.5 text-xs font-semibold border-b-2 transition-colors ${!isClips
+        ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`;
+    }
+
+    // ── Prompt builder ────────────────────────────────────────────
+    function buildPrompt() {
+      if (!clips.length) { alert('Add at least one clip first'); return null; }
+      const outputName = document.getElementById('output-name').value.trim() || `edit-${new Date().toISOString().slice(0,10)}`;
+      const fmt        = document.getElementById('output-format').value;
+      const extraCtx   = document.getElementById('edit-context').value.trim();
+      const totalDur   = clips.reduce((s, c) => s + c.duration, 0);
+      const fmtLabel   = { tiktok:'TikTok vertical — 9:16, 1080×1920', youtube:'YouTube horizontal — 16:9, 1920×1080', square:'Square — 1:1, 1080×1080', original:'keep original source dimensions' }[fmt];
+      const outputDir  = '/Users/vincentlaw/content-creator/public/output';
+      const outputPath = `${outputDir}/${outputName}/${fmt}.mp4`;
+      const scaleFlag  = fmt === 'tiktok' ? '1080:1920' : fmt === 'youtube' ? '1920:1080' : fmt === 'square' ? '1080:1080' : null;
+      const clipsText  = clips.map((c, i) => [
+        `Clip ${i+1}:`,
+        `  Source file : ${c.file}`,
+        `  Start       : ${c.inTime}  (${c.inSec.toFixed(3)}s)`,
+        `  End         : ${c.outTime}  (${c.outSec.toFixed(3)}s)`,
+        `  Duration    : ${c.duration.toFixed(2)}s`,
+        c.context ? `  Note        : ${c.context}` : ''
+      ].filter(Boolean).join('\n')).join('\n\n');
+
+      const prompt = `Please edit the following video footage clips into a single video using ffmpeg.
+
+OUTPUT REQUIREMENTS
+- Format        : ${fmtLabel}
+- Output path   : ${outputPath}
+- Total clips   : ${clips.length}
+- Total duration: ~${totalDur.toFixed(1)} seconds
+
+CLIPS TO INCLUDE (assemble in this order)
+${clipsText}
+${extraCtx ? `\nADDITIONAL INSTRUCTIONS\n${extraCtx}\n` : ''}
+STEPS
+1. mkdir -p ${outputDir}/${outputName}
+2. Extract each clip:
+   ffmpeg -i "<source>" -ss <start_sec> -to <end_sec> -c:v libx264 -c:a aac /tmp/clip_N.mp4
+3. Write /tmp/concat_list.txt:  file '/tmp/clip_N.mp4'  (one line per clip)
+4. Concatenate: ffmpeg -f concat -safe 0 -i /tmp/concat_list.txt -c copy /tmp/joined.mp4
+5. Final encode${scaleFlag ? ` + scale to ${scaleFlag} with letterbox padding` : ''}:
+   ffmpeg -i /tmp/joined.mp4 ${scaleFlag ? `-vf "scale=${scaleFlag}:force_original_aspect_ratio=decrease,pad=${scaleFlag}:(ow-iw)/2:(oh-ih)/2" ` : ''}-c:v libx264 -crf 22 -preset medium -c:a aac -b:a 128k "${outputPath}"
+6. Verify: ffprobe "${outputPath}"
+
+Use best-practice ffmpeg flags for quality and compatibility.`;
+
+      document.getElementById('generated-prompt').value = prompt;
+      showRightTab('prompt');
+      return prompt;
+    }
+
+    async function copyPrompt() {
+      const prompt = buildPrompt();
+      if (!prompt) return;
+      try {
+        await navigator.clipboard.writeText(prompt);
+        const btn = event.target;
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+      } catch { alert('Select and copy the prompt text manually.'); }
+    }
+
+    async function sendToClaudeCode() {
+      const prompt = buildPrompt();
+      if (!prompt) return;
+      const logPanel = document.getElementById('execution-log-panel');
+      const logEl    = document.getElementById('execution-output');
+      const statusEl = document.getElementById('exec-status');
+      logPanel.classList.remove('hidden');
+      logPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      logEl.textContent = '';
+      statusEl.textContent = 'Running…';
+      statusEl.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800';
+      try {
+        const res = await fetch('/api/execute-edit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        const reader = res.body.getReader(), decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n'); buf = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.type === 'start' || ev.type === 'output') {
+                logEl.textContent += ev.text || ev.message || '';
+                logEl.scrollTop = logEl.scrollHeight;
+              } else if (ev.type === 'done') {
+                logEl.textContent += ev.message || '';
+                logEl.scrollTop = logEl.scrollHeight;
+                statusEl.textContent = ev.code === 0 ? 'Completed ✓' : `Failed (exit ${ev.code})`;
+                statusEl.className = `text-xs px-2 py-0.5 rounded-full ${ev.code === 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
+              } else if (ev.type === 'error') {
+                logEl.textContent += `ERROR: ${ev.message}`;
+                logEl.scrollTop = logEl.scrollHeight;
+                statusEl.textContent = 'Error';
+                statusEl.className = 'text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-800';
+              }
+            } catch { /* malformed SSE */ }
+          }
+        }
+      } catch (e) {
+        logEl.textContent += `\nConnection error: ${e.message}`;
+        statusEl.textContent = 'Failed';
+        statusEl.className = 'text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-800';
+      }
+    }
+
+    function clearLog() { document.getElementById('execution-output').textContent = ''; }
+    // ==================== End Footage Editor ====================
 
     // Dark mode
     function toggleDarkMode() {
@@ -204,11 +983,31 @@
 
     // Tab navigation
     function showTab(tabName) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-content').forEach(el => {
+        el.classList.add('hidden');
+        el.style.display = '';
+      });
       document.querySelectorAll('.tab').forEach(el => el.classList.remove('tab-active'));
-
-      document.getElementById(`tab-${tabName}`).classList.remove('hidden');
       document.querySelector(`[data-tab="${tabName}"]`).classList.add('tab-active');
+
+      const main = document.querySelector('main');
+      const footageTab = document.getElementById('tab-footage');
+
+      if (tabName === 'footage') {
+        // Full-viewport layout: remove main padding/max-width, size tab to fill
+        main.className = 'overflow-hidden';
+        footageTab.style.display = 'block';
+        footageTab.classList.remove('hidden');
+        // Calculate available height from actual header + nav dimensions
+        const header = document.querySelector('header');
+        const nav    = document.querySelector('nav');
+        const offset = (header?.offsetHeight || 64) + (nav?.offsetHeight || 56);
+        footageTab.style.height = `calc(100vh - ${offset}px)`;
+      } else {
+        main.className = 'max-w-7xl mx-auto px-4 py-8';
+        const tab = document.getElementById(`tab-${tabName}`);
+        tab.classList.remove('hidden');
+      }
 
       currentTab = tabName;
       loadTabData(tabName);
@@ -233,6 +1032,9 @@
           break;
         case 'trends':
           loadTrends();
+          break;
+        case 'footage':
+          loadFootageFiles();
           break;
       }
     }
@@ -550,10 +1352,59 @@
       return num.toString();
     }
 
+    // ---- Session file injection (from /footage-edit command via URL params) ----
+    let sessionFiles = []; // files pre-loaded by the slash command
+
+    function initFromURLParams() {
+      const params = new URLSearchParams(window.location.search);
+
+      // ?tab=footage → navigate to that tab
+      const tab = params.get('tab');
+      if (tab) {
+        showTab(tab);
+      }
+
+      // ?files=path1|path2 → pre-load those files into the file browser
+      const filesParam = params.get('files');
+      if (filesParam) {
+        const paths = decodeURIComponent(filesParam).split('|').map(p => p.trim()).filter(Boolean);
+        sessionFiles = paths.map(p => ({ name: p.split('/').pop(), path: p, size: null }));
+        renderSessionFiles();
+        // Auto-load the first file after the player is visible
+        if (sessionFiles.length > 0) {
+          setTimeout(() => loadVideo(sessionFiles[0].path, sessionFiles[0].name), 300);
+        }
+        analyzeFootage(paths);
+      }
+
+      // Clean up the URL so refreshing doesn't re-trigger
+      if (tab || filesParam) {
+        const clean = window.location.pathname;
+        window.history.replaceState({}, '', clean);
+      }
+    }
+
+    function renderSessionFiles() {
+      const section = document.getElementById('session-files-section');
+      const el = document.getElementById('session-files');
+      if (!sessionFiles.length) { section.classList.add('hidden'); return; }
+      section.classList.remove('hidden');
+      el.innerHTML = sessionFiles.map(f => `
+        <button onclick="loadVideo('${f.path.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}','${f.name.replace(/'/g,"\\'")}')"
+          class="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-indigo-50 dark:hover:bg-gray-700 truncate flex justify-between items-center
+            ${f.path === currentVideoPath ? 'bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 font-medium' : 'text-indigo-700 dark:text-indigo-300'}">
+          <span class="truncate">▶ ${f.name}</span>
+          ${f.size ? `<span class="text-xs text-gray-400 ml-2 shrink-0">${formatFileSize(f.size)}</span>` : ''}
+        </button>`).join('');
+    }
+
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
       loadTabData('overview');
       loadSchedulerStatus();
+      initFromURLParams(); // handle ?tab= and ?files= from /footage-edit command
+      document.addEventListener('mousemove', onMarkerDragMove);
+      document.addEventListener('mouseup', onMarkerDragEnd);
 
       // Refresh data periodically
       setInterval(() => {
